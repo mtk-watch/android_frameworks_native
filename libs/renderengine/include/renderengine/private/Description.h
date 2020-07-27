@@ -79,6 +79,18 @@ struct Description {
     mat4 colorMatrix;
     mat4 inputTransformMatrix;
     mat4 outputTransformMatrix;
+#ifdef MTK_DISP_COLOR_TRANSFORM_IS_NON_LINEAR
+    mat4 dispColorMatrix;
+#endif
+#ifdef MTK_IN_DISPLAY_FINGERPRINT
+    bool isDither = false;
+    enum class EGLVendor : int {
+        DEFAULT,
+        IMG,
+        ARM,
+    };
+    EGLVendor vendor = EGLVendor::DEFAULT;
+#endif
 };
 
 } // namespace renderengine

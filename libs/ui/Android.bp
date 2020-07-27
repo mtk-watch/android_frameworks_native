@@ -47,7 +47,22 @@ cc_library_shared {
         "-Wno-padded",
 
         "-Wno-switch-enum",
+
+        // MTK AOSP enhancement required
+        "-DMTK_LIBUI_DEBUG_SUPPORT",
+        "-DMTK_LIBUI_BYPASS_INTERGER_OVERFLOW_CHECK",
+        "-Wno-zero-length-array",
+        "-DMTK_USER_BUILD=1",
     ],
+
+    product_variables: {
+      eng: {
+        cppflags: [
+           "-UMTK_USER_BUILD",
+           "-DMTK_USER_BUILD=0"
+        ],
+      },
+    },
 
     sanitize: {
         integer_overflow: true,

@@ -261,7 +261,11 @@ uint32_t OutputLayer::calculateOutputRelativeBufferTransform() const {
      * (NOTE: the matrices are multiplied in reverse order)
      */
     const ui::Transform& layerTransform = layerState.geomLayerTransform;
+#ifdef MTK_AOSP_DISPLAY_BUGFIX
+    const ui::Transform displayTransform{outputState.transform};
+#else
     const ui::Transform displayTransform{outputState.orientation};
+#endif
     const ui::Transform bufferTransform{layerState.geomBufferTransform};
     ui::Transform transform(displayTransform * layerTransform * bufferTransform);
 

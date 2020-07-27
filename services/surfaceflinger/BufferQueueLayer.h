@@ -21,6 +21,9 @@
 #include <utils/String8.h>
 
 namespace android {
+#ifdef MTK_DISPLAY_DEJITTER
+class DispDeJitter;
+#endif
 
 /*
  * A new BufferQueue and a new BufferLayerConsumer are created when the
@@ -139,6 +142,19 @@ private:
     std::atomic<bool> mSidebandStreamChanged{false};
 
     void fakeVsync();
+
+#ifdef MTK_DISPLAY_DEJITTER
+protected:
+    DispDeJitter* mDispDeJitter;
+#endif
+
+#ifdef MTK_SF_DEBUG_SUPPORT
+public:
+    void dumpBufferQueueCoreState(String8& result) const
+    {
+        mConsumer->dumpState(result);
+    }
+#endif
 };
 
 } // namespace android

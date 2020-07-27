@@ -62,6 +62,9 @@
 #include "MonitoredProducer.h"
 #include "SurfaceFlinger.h"
 #include "TimeStats/TimeStats.h"
+#ifdef MTK_SF_DEBUG_SUPPORT
+#include "mediatek/MtkDebugAPI.h"
+#endif
 
 #define DEBUG_RESIZE 0
 
@@ -711,7 +714,14 @@ void Layer::pushPendingState() {
         setTransactionFlags(eTransactionNeeded);
         mFlinger->setTransactionFlags(eTraversalNeeded);
     }
+#ifdef MTK_AOSP_DISPLAY_BUGFIX
+    {
+        Mutex::Autolock pendingStateLock(mPendingStateMutex);
+#endif
     mPendingStates.push_back(mCurrentState);
+#ifdef MTK_AOSP_DISPLAY_BUGFIX
+    }
+#endif
     ATRACE_INT(mTransactionName.string(), mPendingStates.size());
 }
 
@@ -719,7 +729,14 @@ void Layer::popPendingState(State* stateToCommit) {
     ATRACE_CALL();
     *stateToCommit = mPendingStates[0];
 
+#ifdef MTK_AOSP_DISPLAY_BUGFIX
+    {
+        Mutex::Autolock pendingStateLock(mPendingStateMutex);
+#endif
     mPendingStates.removeAt(0);
+#ifdef MTK_AOSP_DISPLAY_BUGFIX
+    }
+#endif
     ATRACE_INT(mTransactionName.string(), mPendingStates.size());
 }
 
@@ -913,6 +930,9 @@ uint32_t Layer::doTransaction(uint32_t flags) {
 
 void Layer::commitTransaction(const State& stateToCommit) {
     mDrawingState = stateToCommit;
+#ifdef MTK_SF_DEBUG_SUPPORT
+    logTransaction(this);
+#endif
 }
 
 uint32_t Layer::getTransactionFlags(uint32_t flags) {
@@ -1969,6 +1989,10 @@ void Layer::writeToProto(LayerProto* layerInfo, LayerVector::StateSet stateSet,
         layerInfo->set_curr_frame(mCurrentFrameNumber);
         layerInfo->set_effective_scaling_mode(getEffectiveScalingMode());
 
+#ifdef MTK_AOSP_DISPLAY_BUGFIX
+        {
+            Mutex::Autolock pendingStateLock(mPendingStateMutex);
+#endif
         for (const auto& pendingState : mPendingStates) {
             auto barrierLayer = pendingState.barrierLayer_legacy.promote();
             if (barrierLayer != nullptr) {
@@ -1977,6 +2001,9 @@ void Layer::writeToProto(LayerProto* layerInfo, LayerVector::StateSet stateSet,
                 barrierLayerProto->set_frame_number(pendingState.frameNumber_legacy);
             }
         }
+#ifdef MTK_AOSP_DISPLAY_BUGFIX
+        }
+#endif
         LayerProtoHelper::writeToProto(mBounds, [&]() { return layerInfo->mutable_bounds(); });
     }
 
@@ -1997,6 +2024,12 @@ void Layer::writeToProto(LayerProto* layerInfo, LayerVector::StateSet stateSet,
         LayerProtoHelper::writeToProto(mScreenBounds,
                                        [&]() { return layerInfo->mutable_screen_bounds(); });
     }
+
+#ifdef MTK_SF_DEBUG_SUPPORT
+    String8 result;
+    dumpBufferQueueCoreState(result);
+    layerInfo->set_bqcoreinfo(result.c_str());
+#endif
 }
 
 void Layer::writeToProto(LayerProto* layerInfo, const sp<DisplayDevice>& displayDevice,

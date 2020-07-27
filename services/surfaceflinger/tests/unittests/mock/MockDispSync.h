@@ -57,6 +57,11 @@ private:
         nsecs_t phase;
     };
     CallbackType mCallback;
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+public:
+    bool obeyResync() { return true; }
+    status_t setVSyncMode(int32_t /*mode*/, int32_t /*fps*/) { return NO_ERROR; }
+#endif
 };
 
 } // namespace mock

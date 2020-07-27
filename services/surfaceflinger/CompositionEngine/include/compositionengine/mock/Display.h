@@ -40,6 +40,10 @@ public:
 
     MOCK_METHOD1(createDisplayColorProfile, void(DisplayColorProfileCreationArgs&&));
     MOCK_METHOD1(createRenderSurface, void(RenderSurfaceCreationArgs&&));
+
+#ifdef MTK_COLOR_TRANSFORM_NO_SWITCH_BETWEEN_GPU_AND_HWC
+    MOCK_CONST_METHOD0(getStatusOfColorTransform, status_t());
+#endif
 };
 
 } // namespace android::compositionengine::mock

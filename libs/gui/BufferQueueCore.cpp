@@ -17,6 +17,10 @@
 #define LOG_TAG "BufferQueueCore"
 #define ATRACE_TAG ATRACE_TAG_GRAPHICS
 //#define LOG_NDEBUG 0
+#ifdef MTK_LIBGUI_DEBUG_SUPPORT
+// this macro is used in BQ_LOG
+#define MTK_COMPILE_BUFFERQUEUECORE
+#endif
 
 #define EGL_EGLEXT_PROTOTYPES
 
@@ -107,9 +111,19 @@ BufferQueueCore::BufferQueueCore() :
             s++) {
         mUnusedSlots.push_front(s);
     }
+#ifdef MTK_LIBGUI_DEBUG_SUPPORT
+    debugger.onConstructor(this, mConsumerName, mUniqueId);
+#endif
 }
 
+#ifdef MTK_LIBGUI_DEBUG_SUPPORT
+BufferQueueCore::~BufferQueueCore() {
+        std::lock_guard<std::mutex> lock(mMutex);
+        debugger.onDestructor();
+}
+#else
 BufferQueueCore::~BufferQueueCore() {}
+#endif
 
 void BufferQueueCore::dumpState(const String8& prefix, String8* outResult) const {
     std::lock_guard<std::mutex> lock(mMutex);
@@ -127,6 +141,22 @@ void BufferQueueCore::dumpState(const String8& prefix, String8* outResult) const
                             mFrameCounter);
 
     outResult->appendFormat("\n%sFIFO(%zu):\n", prefix.string(), mQueue.size());
+
+#ifdef MTK_LIBGUI_DEBUG_SUPPORT
+    // add more message for debug
+    outResult->appendFormat("%s this=%p ", prefix.string(), this);
+
+    outResult->appendFormat("(mConsumerName=%s, ", mConsumerName.string());
+
+    outResult->appendFormat("mConnectedApi=%d, mConsumerUsageBits=%" PRIu64 ", ",
+                            mConnectedApi, mConsumerUsageBits);
+
+    outResult->appendFormat("mId=%d, mPid=%d, producer=[%d:%s], consumer=[%d:%s])\n",
+                            debugger.mId, debugger.mPid,
+                            debugger.mProducerPid, debugger.mProducerProcName.string(),
+                            debugger.mConsumerPid, debugger.mConsumerProcName.string());
+#endif
+
     Fifo::const_iterator current(mQueue.begin());
     while (current != mQueue.end()) {
         double timestamp = current->mTimestamp / 1e9;
@@ -171,6 +201,10 @@ void BufferQueueCore::dumpState(const String8& prefix, String8* outResult) const
         outResult->appendFormat("%s  [%02d:%p] state=%-8s\n", prefix.string(), s, buffer.get(),
                                 mSlots[s].mBufferState.string());
     }
+#ifdef MTK_LIBGUI_DEBUG_SUPPORT
+    // to trigger static/continuous dump
+    debugger.onDump(*outResult, String8::format("%s    ", prefix.string()));
+#endif
 }
 
 int BufferQueueCore::getMinUndequeuedBufferCountLocked() const {
@@ -226,6 +260,9 @@ void BufferQueueCore::clearBufferSlotLocked(int slot) {
     if (mLastQueuedSlot == slot) {
         mLastQueuedSlot = INVALID_BUFFER_SLOT;
     }
+#ifdef MTK_LIBGUI_DEBUG_SUPPORT
+    debugger.onFreeBufferLocked(slot);
+#endif
 }
 
 void BufferQueueCore::freeAllBuffersLocked() {

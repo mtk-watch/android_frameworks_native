@@ -26,6 +26,12 @@
 #include "egl_tls.h"
 #include "egl_trace.h"
 
+#ifdef MTK_GAMEPQ
+#define EGL_MTK_PQ_MIRA_VISION 0x3501
+/* Declare here, because modify the "header-file" will result "ABI-Checker" build-failed. */
+EGLAPI EGLBoolean EGLAPIENTRY eglSurfaceAttribMTK(EGLDisplay dpy, EGLSurface surface, EGLint attribute, EGLint value_version, EGLint *values, EGLint value_size);
+#endif
+
 using namespace android;
 
 namespace android {
@@ -294,6 +300,15 @@ EGLBoolean eglSurfaceAttrib(EGLDisplay dpy, EGLSurface surface, EGLint attribute
     egl_connection_t* const cnx = &gEGLImpl;
     return cnx->platform.eglSurfaceAttrib(dpy, surface, attribute, value);
 }
+
+#ifdef MTK_GAMEPQ
+EGLBoolean eglSurfaceAttribMTK(EGLDisplay dpy, EGLSurface surface, EGLint attribute, EGLint value_version, EGLint *values, EGLint value_size) {
+    clearError();
+
+    egl_connection_t* const cnx = &gEGLImpl;
+    return cnx->platform.eglSurfaceAttribMTK(dpy, surface, attribute, value_version, values, value_size);
+}
+#endif
 
 EGLBoolean eglBindTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer) {
     clearError();

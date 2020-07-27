@@ -178,9 +178,11 @@ static void setEmulatorGlesValue(void) {
     }
 }
 
+static const char* GPU_DEBUG_SUFFIX_PROPERTY = "vendor.debug.gpu.provider";
 static const char* DRIVER_SUFFIX_PROPERTY = "ro.hardware.egl";
 
-static const char* HAL_SUBNAME_KEY_PROPERTIES[2] = {
+static const char* HAL_SUBNAME_KEY_PROPERTIES[3] = {
+    GPU_DEBUG_SUFFIX_PROPERTY,
     DRIVER_SUFFIX_PROPERTY,
     "ro.board.platform",
 };

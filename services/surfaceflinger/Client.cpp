@@ -36,6 +36,12 @@ const String16 sAccessSurfaceFlinger("android.permission.ACCESS_SURFACE_FLINGER"
 Client::Client(const sp<SurfaceFlinger>& flinger)
     : mFlinger(flinger)
 {
+#ifdef MTK_SF_DEBUG_SUPPORT
+    // get client process info
+    mClientPid = IPCThreadState::self()->getCallingPid();
+    SurfaceFlinger::getProcessName(mClientPid, mClientProcName);
+    ALOGI("[SF client] NEW(%p) for (%d:%s)", this, mClientPid, mClientProcName.string());
+#endif
 }
 
 status_t Client::initCheck() const {
@@ -88,11 +94,6 @@ status_t Client::createWithSurfaceParent(const String8& name, uint32_t w, uint32
                                          sp<IGraphicBufferProducer>* gbp) {
     if (mFlinger->authenticateSurfaceTexture(parent) == false) {
         ALOGE("failed to authenticate surface texture");
-        // The extra parent layer check below before returning is to help with debugging
-        // b/134888387. Once the bug is fixed the check can be deleted.
-        if ((static_cast<MonitoredProducer*>(parent.get()))->getLayer() == nullptr) {
-            ALOGE("failed to find parent layer");
-        }
         return BAD_VALUE;
     }
 

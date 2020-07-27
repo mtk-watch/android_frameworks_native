@@ -192,7 +192,21 @@ ProgramCache::Key ProgramCache::computeKey(const Description& description) {
                 break;
         }
     }
-
+#ifdef MTK_IN_DISPLAY_FINGERPRINT
+    needs.set(Key::DITHER_MASK, description.isDither ? Key::DITHER_ON : Key::DITHER_OFF);
+    switch (description.vendor) {
+        case Description::EGLVendor::IMG:
+            needs.set(Key::VENDOR_MASK, Key::VENDOR_IMG);
+            break;
+        case Description::EGLVendor::ARM:
+            needs.set(Key::VENDOR_MASK, Key::VENDOR_ARM);
+            break;
+        case Description::EGLVendor::DEFAULT:
+        default:
+            needs.set(Key::VENDOR_MASK, Key::VENDOR_DEFAULT);
+            break;
+    }
+#endif
     return needs;
 }
 
@@ -549,7 +563,15 @@ String8 ProgramCache::generateFragmentShader(const Key& needs) {
     if (needs.getTextureTarget() == Key::TEXTURE_EXT) {
         fs << "#extension GL_OES_EGL_image_external : require";
     }
-
+#ifdef MTK_IN_DISPLAY_FINGERPRINT
+    if (needs.isDither()) {
+        if (needs.getVendor() == Key::VENDOR_ARM) {
+            fs << "#extension GL_ARM_shader_framebuffer_fetch : enable";
+        } else {
+            fs << "#extension GL_EXT_shader_framebuffer_fetch : require";
+        }
+    }
+#endif
     // default precision is required-ish in fragment shaders
     fs << "precision mediump float;";
 
@@ -646,7 +668,38 @@ String8 ProgramCache::generateFragmentShader(const Key& needs) {
         generateOETF(fs, needs);
     }
 
+#ifdef MTK_DISP_COLOR_TRANSFORM_IS_NON_LINEAR
+    if (needs.hasOutputTransformMatrix()) {
+        fs << "uniform mat4 dispColorMatrix;";
+        fs << R"__SHADER__(
+            highp vec3 DispColorMatrix(const highp vec3 color) {
+                return clamp(vec3(dispColorMatrix * vec4(color, 1.0)), 0.0, 1.0);
+            }
+        )__SHADER__";
+    } else {
+        fs << "uniform mat4 dispColorMatrix;";
+        fs << R"__SHADER__(
+            highp vec3 DispColorMatrix(const highp vec3 color) {
+                return clamp(color, 0.0, 1.0);
+            }
+        )__SHADER__";
+    }
+#endif
+
     fs << "void main(void) {" << indent;
+#ifdef MTK_IN_DISPLAY_FINGERPRINT
+    if (needs.isDither()) {
+        fs << "highp float dither = (texture2D(sampler, gl_FragCoord.xy / 64.0).r - 0.5) / 256.0;";
+        if (needs.getVendor() == Key::VENDOR_ARM)
+            fs << "gl_FragColor.rgb = clamp(gl_LastFragColorARM.rgb * (1.0 - color.a) + dither, 0.0, 1.0);";
+        else
+            fs << "gl_FragColor.rgb = clamp(gl_LastFragData[0].rgb * (1.0 - color.a) + dither, 0.0, 1.0);";
+        fs << "gl_FragColor.a = 1.0;";
+
+        fs << dedent << "}";
+        return fs.getString();
+    }
+#endif
     if (needs.isTexturing()) {
         fs << "gl_FragColor = texture2D(sampler, outTexCoords);";
         if (needs.isY410BT2020()) {
@@ -659,6 +712,23 @@ String8 ProgramCache::generateFragmentShader(const Key& needs) {
     if (needs.isOpaque()) {
         fs << "gl_FragColor.a = 1.0;";
     }
+#ifndef MTK_APPLY_COLOR_MATRIX_FIRST
+    // When RenderEngine apply the layer alpha first, it may got a wrong result.
+    // System assume want to do a color inversion, so the color matrix may like
+    // as below.
+    // | r.r  r.g  r.b |   | -1.0   0.0   0.0 |
+    // | g.r  g.g  g.b | = |  0.0  -1.0   0.0 |
+    // | b.r  b.g  b.b |   |  0.0   0.0  -1.0 |
+    // | Tr   Tg   Tb  |   |  1.0   1.0   1.0 |
+    //
+    // If we apply the layer alpha first, the calculation as below.
+    //     R_out = (R_in * layer_alpha) * r.r + Tr
+    // When the layer alpha was 0, R_out was always Tr. Then we want to inverse
+    // a white layer, we still get a white layer.
+    // Therefore we apply color matrix before layer alpha, the calculation as
+    // below. Then Tr also can be adjusted by layer alpha.
+    //     R_out = (R_in * r.r + Tr) * layer_alpha
+    //           = (R_in * r.r * layer_alpha) + (Tr * layer_alpha)
     if (needs.hasAlpha()) {
         // modulate the current alpha value with alpha set
         if (needs.isPremultiplied()) {
@@ -668,6 +738,7 @@ String8 ProgramCache::generateFragmentShader(const Key& needs) {
             fs << "gl_FragColor.a *= color.a;";
         }
     }
+#endif
 
     if (needs.hasTransformMatrix() || (needs.getInputTF() != needs.getOutputTF())) {
         if (!needs.isOpaque() && needs.isPremultiplied()) {
@@ -675,13 +746,29 @@ String8 ProgramCache::generateFragmentShader(const Key& needs) {
             // avoid divide by 0 by adding 0.5/256 to the alpha channel
             fs << "gl_FragColor.rgb = gl_FragColor.rgb / (gl_FragColor.a + 0.0019);";
         }
+#ifdef MTK_DISP_COLOR_TRANSFORM_IS_NON_LINEAR
+        fs << "gl_FragColor.rgb = "
+              "DispColorMatrix(OETF(OutputTransform(OOTF(InputTransform(EOTF(gl_FragColor.rgb))))));";
+#else
         fs << "gl_FragColor.rgb = "
               "OETF(OutputTransform(OOTF(InputTransform(EOTF(gl_FragColor.rgb)))));";
+#endif
         if (!needs.isOpaque() && needs.isPremultiplied()) {
             // and re-premultiply if needed after gamma correction
             fs << "gl_FragColor.rgb = gl_FragColor.rgb * (gl_FragColor.a + 0.0019);";
         }
     }
+#ifdef MTK_APPLY_COLOR_MATRIX_FIRST
+    if (needs.hasAlpha()) {
+        // modulate the current alpha value with alpha set
+        if (needs.isPremultiplied()) {
+            // ... and the color too if we're premultiplied
+            fs << "gl_FragColor *= color.a;";
+        } else {
+            fs << "gl_FragColor.a *= color.a;";
+        }
+    }
+#endif
 
     if (needs.hasRoundedCorners()) {
         if (needs.isPremultiplied()) {

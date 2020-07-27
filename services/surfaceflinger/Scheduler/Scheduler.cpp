@@ -273,6 +273,11 @@ void Scheduler::setVsyncPeriod(const nsecs_t period) {
     std::lock_guard<std::mutex> lock(mHWVsyncLock);
     mPrimaryDispSync->setPeriod(period);
 
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+    if (!mPrimaryDispSync->obeyResync()) {
+        return;
+    }
+#endif
     if (!mPrimaryHWVsyncEnabled) {
         mPrimaryDispSync->beginResync();
         mEventControlThread->setVsyncEnabled(true);

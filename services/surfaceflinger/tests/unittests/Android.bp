@@ -74,4 +74,9 @@ cc_test {
     header_libs: [
         "libsurfaceflinger_headers",
     ],
+
+    // MTK AOSP enhancement required
+    shared_libs: [
+      "libgralloc_extra_sys",
+    ],
 }

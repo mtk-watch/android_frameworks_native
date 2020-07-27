@@ -16,6 +16,11 @@ cc_defaults {
     cflags: [
         "-DGL_GLEXT_PROTOTYPES",
         "-DEGL_EGLEXT_PROTOTYPES",
+        "-DMTK_SF_DEBUG_SUPPORT",
+        "-DMTK_DISP_COLOR_TRANSFORM_IS_NON_LINEAR",
+        "-DMTK_HDR_DISPLAY_SUPPORT",
+        "-DMTK_APPLY_COLOR_MATRIX_FIRST",
+        "-DMTK_IN_DISPLAY_FINGERPRINT"
     ],
     shared_libs: [
         "libbase",
@@ -53,6 +58,9 @@ filegroup {
         "gl/GLImage.cpp",
         "gl/Program.cpp",
         "gl/ProgramCache.cpp",
+
+        // MTK AOSP enhancement required
+        "mediatek/GLESRenderEngine.cpp"
     ],
 }
 

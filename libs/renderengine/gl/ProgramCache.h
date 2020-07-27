@@ -112,6 +112,18 @@ public:
             Y410_BT2020_MASK = 1 << Y410_BT2020_SHIFT,
             Y410_BT2020_OFF = 0 << Y410_BT2020_SHIFT,
             Y410_BT2020_ON = 1 << Y410_BT2020_SHIFT,
+#ifdef MTK_IN_DISPLAY_FINGERPRINT
+            DITHER_SHIFT = 13,
+            DITHER_MASK = 1 << DITHER_SHIFT,
+            DITHER_OFF = 0 << DITHER_SHIFT,
+            DITHER_ON = 1 << DITHER_SHIFT,
+
+            VENDOR_SHIFT = 14,
+            VENDOR_MASK = 3 << VENDOR_SHIFT,
+            VENDOR_DEFAULT = 0 << VENDOR_SHIFT,
+            VENDOR_IMG = 1 << VENDOR_SHIFT,
+            VENDOR_ARM = 2 << VENDOR_SHIFT,
+#endif
         };
 
         inline Key() : mKey(0) {}
@@ -173,6 +185,11 @@ public:
         struct Hash {
             size_t operator()(const Key& key) const { return static_cast<size_t>(key.mKey); }
         };
+
+#ifdef MTK_IN_DISPLAY_FINGERPRINT
+        inline bool isDither() const { return (mKey & DITHER_MASK) != DITHER_OFF; }
+        inline int getVendor() const { return (mKey & VENDOR_MASK); }
+#endif
     };
 
     ProgramCache() = default;

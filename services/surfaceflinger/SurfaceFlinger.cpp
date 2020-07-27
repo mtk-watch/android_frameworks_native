@@ -118,6 +118,14 @@
 
 #include <layerproto/LayerProtoParser.h>
 #include "SurfaceFlingerProperties.h"
+#ifdef MTK_SF_WATCHDOG_SUPPORT
+#include "mediatek/SFWatchDogAPILoader.h"
+#endif
+#ifdef MTK_SF_DEBUG_SUPPORT
+#include "mediatek/SFProperty.h"
+#include "mediatek/PropertiesState.h"
+#include "mediatek/MtkDebugAPI.h"
+#endif
 
 namespace android {
 
@@ -358,7 +366,11 @@ SurfaceFlinger::SurfaceFlinger(Factory& factory) : SurfaceFlinger(factory, SkipI
     ALOGI_IF(mPropagateBackpressureClientComposition,
              "Enabling backpressure propagation for Client Composition");
 
+#ifdef MTK_SF_HWC_VDS_SUPPORT
+    property_get("debug.sf.enable_hwc_vds", value, "1");
+#else
     property_get("debug.sf.enable_hwc_vds", value, "0");
+#endif
     mUseHwcVirtualDisplays = atoi(value);
     ALOGI_IF(mUseHwcVirtualDisplays, "Enabling HWC virtual displays");
 
@@ -397,6 +409,15 @@ SurfaceFlinger::SurfaceFlinger(Factory& factory) : SurfaceFlinger(factory, SkipI
         // for production purposes later on.
         setenv("TREBLE_TESTING_OVERRIDE", "true", true);
     }
+#ifdef MTK_SF_DEBUG_SUPPORT
+    // init properties setting first
+    SFProperty::getInstance().setMTKProperties(mDebugRegion);
+#endif
+
+#ifdef MTK_AOSP_DISPLAY_BUGFIX
+    // init debug parameter of SurfaceTracing to false
+    mIsDisabingSurfaceTracing = false;
+#endif
 }
 
 void SurfaceFlinger::onFirstRef()
@@ -409,6 +430,12 @@ SurfaceFlinger::~SurfaceFlinger() = default;
 void SurfaceFlinger::binderDied(const wp<IBinder>& /* who */)
 {
     // the window manager died on us. prepare its eulogy.
+#ifdef MTK_AOSP_DISPLAY_BUGFIX
+    char value[PROPERTY_VALUE_MAX] = {'\0'};
+    property_get("sys.powerctl", value, "");
+    if(strstr(value, "shutdown"))
+        return;
+#endif
 
     // restore initial conditions (default device unblank, etc)
     initializeDisplays();
@@ -543,6 +570,12 @@ void SurfaceFlinger::bootFinished()
     if (input == nullptr) {
         ALOGE("Failed to link to input service");
     } else {
+#ifdef MTK_AOSP_DISPLAY_BUGFIX
+        // when bootFinished() assign value to mInputFlinger, main thread may
+        // still access it. therefore we add a mutex to avoid occurring race
+        // condition.
+        std::lock_guard<std::mutex> lock(mInputFlingerLock);
+#endif
         mInputFlinger = interface_cast<IInputFlinger>(input);
     }
 
@@ -573,6 +606,14 @@ void SurfaceFlinger::bootFinished()
             setRefreshRateTo(RefreshRateType::DEFAULT, Scheduler::ConfigEvent::None);
         }
     }));
+
+#ifdef MTK_BOOT_PROF
+    // boot time profiling
+    bootProf(0);
+#endif
+#ifdef MTK_SF_WATCHDOG_SUPPORT
+    SFWatchDogAPILoader::getInstance().setThreshold(3000);
+#endif
 }
 
 uint32_t SurfaceFlinger::getNewTexture() {
@@ -719,6 +760,12 @@ void SurfaceFlinger::init() {
     mRefreshRateConfigs.populate(getHwComposer().getConfigs(*display->getId()));
     mRefreshRateStats.setConfigMode(getHwComposer().getActiveConfigIndex(*display->getId()));
 
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+    initVsyncEnhancement();
+#endif
+#ifdef MTK_COLOR_TRANSFORM_NO_SWITCH_BETWEEN_GPU_AND_HWC
+    mIsHWCSupportColorTransform = false;
+#endif
     ALOGV("Done initializing");
 }
 
@@ -1644,6 +1691,9 @@ bool SurfaceFlinger::previousFrameMissed() NO_THREAD_SAFETY_ANALYSIS {
 
 void SurfaceFlinger::onMessageReceived(int32_t what) NO_THREAD_SAFETY_ANALYSIS {
     ATRACE_CALL();
+#ifdef MTK_SF_WATCHDOG_SUPPORT
+    SFWatchDogAPILoader::getInstance().setAnchor(String8::format("[%s] what=%d", __func__, what));
+#endif
     switch (what) {
         case MessageQueue::INVALIDATE: {
             bool frameMissed = previousFrameMissed();
@@ -1708,6 +1758,9 @@ void SurfaceFlinger::onMessageReceived(int32_t what) NO_THREAD_SAFETY_ANALYSIS {
             break;
         }
     }
+#ifdef MTK_SF_WATCHDOG_SUPPORT
+    SFWatchDogAPILoader::getInstance().delAnchor();
+#endif
 }
 
 bool SurfaceFlinger::handleMessageTransaction() {
@@ -1736,17 +1789,27 @@ void SurfaceFlinger::handleMessageRefresh() {
     ATRACE_CALL();
 
     mRefreshPending = false;
+#ifdef MTK_SF_DEBUG_SUPPORT
+    Mutex::Autolock _l(mDumpLock);
+#endif
 
     const bool repaintEverything = mRepaintEverything.exchange(false);
     preComposition();
     rebuildLayerStacks();
     calculateWorkingSet();
+#ifdef MTK_VIRTUAL_DISPLAY_SHOW_SURFACE_UPDATES
+    {
+        Mutex::Autolock _l(mDebugRegionLock);
+#endif
     for (const auto& [token, display] : mDisplays) {
         beginFrame(display);
         prepareFrame(display);
         doDebugFlashRegions(display, repaintEverything);
         doComposition(display, repaintEverything);
     }
+#ifdef MTK_VIRTUAL_DISPLAY_SHOW_SURFACE_UPDATES
+    }
+#endif
 
     logLayerStats();
 
@@ -1772,6 +1835,9 @@ void SurfaceFlinger::handleMessageRefresh() {
 
 bool SurfaceFlinger::handleMessageInvalidate() {
     ATRACE_CALL();
+#ifdef MTK_SF_DEBUG_SUPPORT
+    Mutex::Autolock _l(mDumpLock);
+#endif
     bool refreshNeeded = handlePageFlip();
 
     if (mVisibleRegionsDirty) {
@@ -1838,6 +1904,9 @@ void SurfaceFlinger::calculateWorkingSet() {
 
         if (mDrawingState.colorMatrixChanged) {
             display->setColorTransform(mDrawingState.colorMatrix);
+#ifdef MTK_COLOR_TRANSFORM_NO_SWITCH_BETWEEN_GPU_AND_HWC
+            mIsHWCSupportColorTransform = (display->getStatusOfColorTransform() != NO_ERROR) ? false : true;
+#endif
         }
         Dataspace targetDataspace = Dataspace::UNKNOWN;
         if (useColorManagement) {
@@ -2407,6 +2476,9 @@ void SurfaceFlinger::prepareFrame(const sp<DisplayDevice>& displayDevice) {
 }
 
 void SurfaceFlinger::doComposition(const sp<DisplayDevice>& displayDevice, bool repaintEverything) {
+#ifdef MTK_SF_DEBUG_SUPPORT
+    slowMotion();
+#endif
     ATRACE_CALL();
     ALOGV("doComposition");
 
@@ -2414,6 +2486,16 @@ void SurfaceFlinger::doComposition(const sp<DisplayDevice>& displayDevice, bool 
     const auto& displayState = display->getState();
 
     if (displayState.isEnabled) {
+#ifdef MTK_SF_DEBUG_SUPPORT
+        char tag[32];
+        const auto displayId = display->getId();
+        if (!displayId) {
+            snprintf(tag, sizeof(tag), "doDisplayComposition_-1");
+        } else {
+            snprintf(tag, sizeof(tag), "doDisplayComposition_%s", to_string(*displayId).c_str());
+        }
+        ATRACE_NAME(tag);
+#endif
         // transform the dirty region into this screen's coordinate space
         const Region dirtyRegion = display->getDirtyRegion(repaintEverything);
 
@@ -2924,6 +3006,12 @@ void SurfaceFlinger::handleTransactionLocked(uint32_t transactionFlags)
 
 void SurfaceFlinger::updateInputFlinger() {
     ATRACE_CALL();
+#ifdef MTK_AOSP_DISPLAY_BUGFIX
+    // when system occur android restart, bootFinished() will assign a new
+    // value to mInputFlinger. However main thread may be accessing it. it
+    // causes race condition, so we add a mutex to protect mInputFlinger
+    std::lock_guard<std::mutex> lock(mInputFlingerLock);
+#endif
     if (!mInputFlinger) {
         return;
     }
@@ -3316,6 +3404,9 @@ void SurfaceFlinger::doDisplayComposition(const sp<DisplayDevice>& displayDevice
     }
 
     ALOGV("doDisplayComposition");
+#ifdef MTK_SF_DEBUG_SUPPORT
+    startLogRepaint(displayDevice);
+#endif
     base::unique_fd readyFence;
     if (!doComposeSurfaces(displayDevice, Region::INVALID_REGION, &readyFence)) return;
 
@@ -3398,7 +3489,16 @@ bool SurfaceFlinger::doComposeSurfaces(const sp<DisplayDevice>& displayDevice,
                                               HWC2::DisplayCapability::SkipClientColorTransform);
 
         // Compute the global color transform matrix.
+#ifdef MTK_DISABLE_COLOR_TRANSFORM_FOR_SECONDARY_DISPLAYS
+        applyColorMatrix = (!hasDeviceComposition &&
+                            !skipClientColorTransform &&
+                            (displayDevice->isPrimary()));
+#else
         applyColorMatrix = !hasDeviceComposition && !skipClientColorTransform;
+#endif
+#ifdef MTK_COLOR_TRANSFORM_NO_SWITCH_BETWEEN_GPU_AND_HWC
+        applyColorMatrix = (mIsHWCSupportColorTransform) ? false : applyColorMatrix;
+#endif
         if (applyColorMatrix) {
             clientCompositionDisplay.colorTransform = displayState.colorTransformMat;
         }
@@ -3443,6 +3543,9 @@ bool SurfaceFlinger::doComposeSurfaces(const sp<DisplayDevice>& displayDevice,
                             clientCompositionLayers.push_back(layerSettings);
                         }
                     }
+#ifdef MTK_SF_DEBUG_SUPPORT
+                    logRepaint(clip, "hwc (%s)\n", layer->getName().string());
+#endif
                     break;
                 }
                 case Hwc2::IComposerClient::Composition::CLIENT: {
@@ -3453,6 +3556,9 @@ bool SurfaceFlinger::doComposeSurfaces(const sp<DisplayDevice>& displayDevice,
                     if (prepared) {
                         clientCompositionLayers.push_back(layerSettings);
                     }
+#ifdef MTK_SF_DEBUG_SUPPORT
+                    logRepaint(clip, "gles (%s)\n", layer->getName().string());
+#endif
                     break;
                 }
                 default:
@@ -3467,6 +3573,11 @@ bool SurfaceFlinger::doComposeSurfaces(const sp<DisplayDevice>& displayDevice,
     // Perform some cleanup steps if we used client composition.
     if (hasClientComposition) {
         clientCompositionDisplay.clearRegion = clearRegion;
+#ifdef MTK_SF_DEBUG_SUPPORT
+        if (!clearRegion.isEmpty()) {
+            logRepaint(clearRegion, "@ (wormhole)\n");
+        }
+#endif
 
         // We boost GPU frequency here because there will be color spaces conversion
         // and it's expensive. We boost the GPU frequency so that GPU composition can
@@ -3487,9 +3598,15 @@ bool SurfaceFlinger::doComposeSurfaces(const sp<DisplayDevice>& displayDevice,
                 layerSettings.source.solidColor = half3(1.0, 0.0, 1.0);
                 layerSettings.geometry.boundaries = rect.toFloatRect();
                 layerSettings.alpha = half(1.0);
+#ifdef MTK_IN_DISPLAY_FINGERPRINT
+                layerSettings.enableDither = false;
+#endif
                 clientCompositionLayers.push_back(layerSettings);
             }
         }
+#ifdef MTK_SF_DEBUG_SUPPORT
+        drawDebugLine(displayDevice);
+#endif
         renderEngine.drawLayers(clientCompositionDisplay, clientCompositionLayers,
                                 buf->getNativeBuffer(), /*useFramebufferCache=*/true, std::move(fd),
                                 readyFence);
@@ -4439,6 +4556,9 @@ void SurfaceFlinger::setPowerModeInternal(const sp<DisplayDevice>& display, int 
         if (display->isPrimary() && mode != HWC_POWER_MODE_DOZE_SUSPEND) {
             mScheduler->onScreenAcquired(mAppConnectionHandle);
             mScheduler->resyncToHardwareVsync(true, getVsyncPeriod());
+#ifdef MTK_SF_WATCHDOG_SUPPORT
+            SFWatchDogAPILoader::getInstance().setResume();
+#endif
         }
 
         mVisibleRegionsDirty = true;
@@ -4460,6 +4580,9 @@ void SurfaceFlinger::setPowerModeInternal(const sp<DisplayDevice>& display, int 
         if (display->isPrimary() && currentMode != HWC_POWER_MODE_DOZE_SUSPEND) {
             mScheduler->disableHardwareVsync(true);
             mScheduler->onScreenReleased(mAppConnectionHandle);
+#ifdef MTK_SF_WATCHDOG_SUPPORT
+            SFWatchDogAPILoader::getInstance().setSuspend();
+#endif
         }
 
         getHwComposer().setPowerMode(*displayId, mode);
@@ -4525,7 +4648,14 @@ status_t SurfaceFlinger::doDump(int fd, const DumpArgs& args,
         // Try to get the main lock, but give up after one second
         // (this would indicate SF is stuck, but we want to be able to
         // print something in dumpsys).
+#ifdef MTK_SF_DEBUG_SUPPORT
+        bool dumpLocked = false;
+        nsecs_t start = 0;
+        status_t err = dumpLock(dumpLocked, start, result);
+#else
         status_t err = mStateLock.timedLock(s2ns(1));
+#endif
+
         bool locked = (err == NO_ERROR);
         if (!locked) {
             StringAppendF(&result,
@@ -4552,6 +4682,9 @@ status_t SurfaceFlinger::doDump(int fd, const DumpArgs& args,
                 {"--static-screen"s, dumper(&SurfaceFlinger::dumpStaticScreenStats)},
                 {"--timestats"s, protoDumper(&SurfaceFlinger::dumpTimeStats)},
                 {"--vsync"s, dumper(&SurfaceFlinger::dumpVSync)},
+#ifdef MTK_SF_DEBUG_SUPPORT
+                {"--mtk"s, dumper(&SurfaceFlinger::mtkDump)},
+#endif
                 {"--wide-color"s, dumper(&SurfaceFlinger::dumpWideColorInfo)},
         };
 
@@ -4561,7 +4694,11 @@ status_t SurfaceFlinger::doDump(int fd, const DumpArgs& args,
             (it->second)(args, asProto, result);
         } else {
             if (asProto) {
+#ifdef MTK_SF_DEBUG_SUPPORT
+                LayersProto layersProto = dumpProtoInfo(LayerVector::StateSet::Drawing);
+#else
                 LayersProto layersProto = dumpProtoInfo(LayerVector::StateSet::Current);
+#endif
                 result.append(layersProto.SerializeAsString().c_str(), layersProto.ByteSize());
             } else {
                 dumpAllLocked(args, result);
@@ -4571,6 +4708,9 @@ status_t SurfaceFlinger::doDump(int fd, const DumpArgs& args,
         if (locked) {
             mStateLock.unlock();
         }
+#ifdef MTK_SF_DEBUG_SUPPORT
+        dumpUnlock(dumpLocked, start);
+#endif
     }
     write(fd, result.c_str(), result.size());
     return NO_ERROR;
@@ -4901,7 +5041,11 @@ void SurfaceFlinger::dumpAllLocked(const DumpArgs& args, std::string& result) co
     colorizer.reset(result);
 
     {
+#ifdef MTK_SF_DEBUG_SUPPORT
+        LayersProto layersProto = dumpProtoInfo(LayerVector::StateSet::Drawing);
+#else
         LayersProto layersProto = dumpProtoInfo(LayerVector::StateSet::Current);
+#endif
         auto layerTree = LayerProtoParser::generateLayerTree(layersProto);
         result.append(LayerProtoParser::layerTreeToString(layerTree));
         result.append("\n");
@@ -5171,6 +5315,11 @@ status_t SurfaceFlinger::CheckTransactCodeCredentials(uint32_t code) {
         ALOGV("Accessing SurfaceFlinger through backdoor code: %u", code);
         return OK;
     }
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+    if (checkMtkTransactCodeCredentials(code) == OK) {
+        return OK;
+    }
+#endif
     ALOGE("Permission Denial: SurfaceFlinger did not recognize request code: %u", code);
     return PERMISSION_DENIED;
 #pragma clang diagnostic pop
@@ -5202,7 +5351,14 @@ status_t SurfaceFlinger::onTransact(uint32_t code, const Parcel& data, Parcel* r
                 return NO_ERROR;
             case 1002:  // SHOW_UPDATES
                 n = data.readInt32();
+#ifdef MTK_VIRTUAL_DISPLAY_SHOW_SURFACE_UPDATES
+                {
+                    Mutex::Autolock _l(mDebugRegionLock);
+#endif
                 mDebugRegion = n ? n : (mDebugRegion ? 0 : 1);
+#ifdef MTK_VIRTUAL_DISPLAY_SHOW_SURFACE_UPDATES
+                }
+#endif
                 invalidateHwcGeometry();
                 repaintEverything();
                 return NO_ERROR;
@@ -5364,6 +5520,24 @@ status_t SurfaceFlinger::onTransact(uint32_t code, const Parcel& data, Parcel* r
                 if (n) {
                     ALOGD("LayerTracing enabled");
                     Mutex::Autolock lock(mStateLock);
+#ifdef MTK_AOSP_DISPLAY_BUGFIX
+                    size_t waitCount = 0;
+                    while (mIsDisabingSurfaceTracing) {
+                        // someone is disabling SurfaceTracing now, so wait it.
+                        err = mSurfaceTracingCond.waitRelative(mStateLock, s2ns(1));
+                        if (err != NO_ERROR) {
+                            if (err == TIMED_OUT) {
+                                waitCount++;
+                            }
+                            if (err != TIMED_OUT || waitCount >= 5) {
+                                ALOGW("error waiting for disabling SurfaceTracing: %s (%d)",
+                                        strerror(-err), err);
+                                reply->writeInt32(err);
+                                return err;
+                            }
+                        }
+                    }
+#endif
                     mTracingEnabledChanged = true;
                     mTracing.enable();
                     reply->writeInt32(NO_ERROR);
@@ -5372,15 +5546,32 @@ status_t SurfaceFlinger::onTransact(uint32_t code, const Parcel& data, Parcel* r
                     bool writeFile = false;
                     {
                         Mutex::Autolock lock(mStateLock);
+#ifndef MTK_AOSP_DISPLAY_BUGFIX
                         mTracingEnabledChanged = true;
+#else
+                        // notify other binder that someone start disable SurfaceTracing.
+                        mIsDisabingSurfaceTracing = true;
+#endif
                         writeFile = mTracing.disable();
                     }
-
                     if (writeFile) {
                         reply->writeInt32(mTracing.writeToFile());
                     } else {
                         reply->writeInt32(NO_ERROR);
                     }
+#ifdef MTK_AOSP_DISPLAY_BUGFIX
+                    // ALPS04736118, after tracing disable, tracing main loop may race with commitTransaction(),
+                    // due to mDrawingStateLock not being lock, once notify tracing disable.
+                    // wait until tracing thread join done
+                    {
+                        Mutex::Autolock lock(mStateLock);
+                        mTracingEnabledChanged = true;
+                        // notify other binder thread that someone complete disable SurfaceTracing,
+                        // then wakeup those threads.
+                        mIsDisabingSurfaceTracing = false;
+                        mSurfaceTracingCond.broadcast();
+                    }
+#endif
                 }
                 return NO_ERROR;
             }
@@ -5508,6 +5699,9 @@ status_t SurfaceFlinger::onTransact(uint32_t code, const Parcel& data, Parcel* r
                 return NO_ERROR;
             }
         }
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+        err = onMtkTransact(code, data , reply, flags);
+#endif
     }
     return err;
 }
@@ -5982,6 +6176,9 @@ void SurfaceFlinger::renderScreenImplLocked(const RenderArea& renderArea,
         bool prepared = layer->prepareClientLayer(renderArea, useIdentityTransform, clearRegion,
                                                   false, layerSettings);
         if (prepared) {
+#ifdef MTK_SF_DEBUG_SUPPORT
+            ALOGI("screenshot (%s)\n", layer->getName().string());
+#endif
             clientCompositionLayers.push_back(layerSettings);
         }
     });

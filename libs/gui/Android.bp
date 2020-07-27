@@ -199,6 +199,57 @@ cc_defaults {
     export_include_dirs: [
         "include",
     ],
+
+    defaults: [
+        "mtk_libgui_defaults",
+    ],
 }
 
+bootstrap_go_package {
+    name:"soong-libgui-mediatek",
+    pkgPath:"android/soong/libgui/mediatek",
+    deps:[
+        "soong-android",
+        "soong-cc",
+    ],
+    srcs:[
+        "libgui.go",
+    ],
+    pluginFor:["soong_build"],
+}
+
+mtk_libgui_defaults {
+    name: "mtk_libgui_defaults",
+    cppflags:[
+        // MTK AOSP enhancement required
+        "-DMTK_AOSP_DISPLAY_BUGFIX",
+        "-DMTK_LIBGUI_QUERY_EXT",
+        "-DMTK_AFPSGO_FBT_GAME",
+        "-DMTK_GEDKPI_PRODUCER",
+        "-DMTK_LIBGUI_DEBUG_SUPPORT",
+        "-DMTK_LIBGUI_LOG_REDUCE",
+    ],
+    srcs:[
+        // MTK AOSP enhancement required
+        "mediatek/MTKFrameBudgetIndicator.cpp",
+        "mediatek/DispDeJitterHelper.cpp",
+        "mediatek/GedKpiDebug.cpp",
+        "mediatek/BufferQueueDebug.cpp",
+        "mediatek/GraphicHelper.cpp",
+    ],
+    shared_libs:[
+        // MTK AOSP enhancement required
+        "libdl",
+        "libhardware",
+    ],
+    // MTK AOSP enhancement required
+    header_libs: [
+        "lib_gedkpi_headers",
+    ],
+    // MTK AOSP enhancement required for BufferQueue dump
+    include_dirs: [
+        "vendor/mediatek/proprietary/hardware/libgem/inc",
+    ],
+
+}
 subdirs = ["tests"]

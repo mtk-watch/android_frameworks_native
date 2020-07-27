@@ -1240,7 +1240,16 @@ status_t H2BGraphicBufferProducer::getUniqueId(uint64_t* outId) const {
 }
 
 status_t H2BGraphicBufferProducer::getConsumerUsage(uint64_t* outUsage) const {
+#ifdef MTK_LIBGUI_LOG_REDUCE
+    // log onetime shot for performance concern
+    static bool shownLog = false;
+    if (!shownLog) {
+        ALOGW("getConsumerUsage is not fully supported");
+        shownLog = true;
+    }
+#else
     ALOGW("getConsumerUsage is not fully supported");
+#endif
     int result;
     status_t transStatus = toStatusT(mBase->query(
             NATIVE_WINDOW_CONSUMER_USAGE_BITS,

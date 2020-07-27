@@ -203,6 +203,12 @@ protected:
     // live longer than RenderEngine.
     virtual Framebuffer* getFramebufferForDrawing() = 0;
     friend class BindNativeBufferAsFramebuffer;
+#ifdef MTK_SF_DEBUG_SUPPORT
+public:
+    virtual void enableDebugLine(bool enable) = 0;
+    virtual void setDebugLineConfig(int32_t width, int32_t height, std::uint32_t flipCount,
+                                    uint32_t color, uint32_t steps) = 0;
+#endif
 };
 
 class BindNativeBufferAsFramebuffer {

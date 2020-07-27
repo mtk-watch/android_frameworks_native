@@ -53,6 +53,13 @@
 #include "egl_tls.h"
 #include "egl_trace.h"
 
+#ifdef MTK_GAMEPQ
+#include <utils/Errors.h>
+#include <gralloc1_mtk_defs.h>
+/* Declare here, because modify the "header-file" will result "ABI-Checker" build-failed. */
+EGLAPI EGLBoolean EGLAPIENTRY eglSurfaceAttribMTK(EGLDisplay dpy, EGLSurface surface, EGLint attribute, EGLint value_version, EGLint *values, EGLint value_size);
+#endif
+
 using namespace android;
 
 // ----------------------------------------------------------------------------
@@ -61,7 +68,7 @@ namespace android {
 
 using nsecs_t = int64_t;
 
-struct extention_map_t {
+struct extension_map_t {
     const char* name;
     __eglMustCastToProperFunctionPointerType address;
 };
@@ -134,6 +141,9 @@ char const * const gExtensionString  =
         "EGL_EXT_protected_content "
         "EGL_IMG_context_priority "
         "EGL_KHR_no_config_context "
+#ifdef MTK_GAMEPQ
+        "EGL_MTK_surface_attrib "
+#endif
         ;
 
 char const * const gClientExtensionString =
@@ -154,7 +164,7 @@ char const * const gClientExtensionString =
  * (keep in sync with gExtensionString above)
  *
  */
-static const extention_map_t sExtensionMap[] = {
+static const extension_map_t sExtensionMap[] = {
     // EGL_KHR_lock_surface
     { "eglLockSurfaceKHR",
             (__eglMustCastToProperFunctionPointerType)&eglLockSurfaceKHR },
@@ -245,6 +255,12 @@ static const extention_map_t sExtensionMap[] = {
     // EGL_ANDROID_native_fence_sync
     { "eglDupNativeFenceFDANDROID",
             (__eglMustCastToProperFunctionPointerType)&eglDupNativeFenceFDANDROID },
+
+#ifdef MTK_GAMEPQ
+    // EGL_MTK_surface_attrib
+    { "eglSurfaceAttribMTK",
+            (__eglMustCastToProperFunctionPointerType)&eglSurfaceAttribMTK },
+#endif
 };
 
 /*
@@ -257,13 +273,14 @@ static const extention_map_t sExtensionMap[] = {
          !strcmp((procname), "eglAwakenProcessIMG"))
 
 // accesses protected by sExtensionMapMutex
-static std::unordered_map<std::string, __eglMustCastToProperFunctionPointerType> sGLExtentionMap;
+static std::unordered_map<std::string, __eglMustCastToProperFunctionPointerType> sGLExtensionMap;
+static std::unordered_map<std::string, int> sGLExtensionSlotMap;
 
-static int sGLExtentionSlot = 0;
+static int sGLExtensionSlot = 0;
 static pthread_mutex_t sExtensionMapMutex = PTHREAD_MUTEX_INITIALIZER;
 
 static void(*findProcAddress(const char* name,
-        const extention_map_t* map, size_t n))() {
+        const extension_map_t* map, size_t n))() {
     for (uint32_t i=0 ; i<n ; i++) {
         if (!strcmp(name, map[i].name)) {
             return map[i].address;
@@ -1212,6 +1229,17 @@ static __eglMustCastToProperFunctionPointerType findBuiltinWrapper(
 
 __eglMustCastToProperFunctionPointerType eglGetProcAddressImpl(const char *procname)
 {
+#ifdef MTK_GAMEPQ
+    if (0 == strcmp(procname, "eglSurfaceAttribMTK")) {
+        char value[PROPERTY_VALUE_MAX];
+        if (property_get("debug.mediatek.game_pq_enable", value, "0")) {
+            if (0 == atoi(value)) {
+                return nullptr;
+            }
+        }
+    }
+#endif
+
     if (FILTER_EXTENSIONS(procname)) {
         return nullptr;
     }
@@ -1223,7 +1251,7 @@ __eglMustCastToProperFunctionPointerType eglGetProcAddressImpl(const char *procn
     addr = findBuiltinWrapper(procname);
     if (addr) return addr;
 
-    // this protects accesses to sGLExtentionMap and sGLExtentionSlot
+    // this protects accesses to sGLExtensionMap, sGLExtensionSlot, and sGLExtensionSlotMap
     pthread_mutex_lock(&sExtensionMapMutex);
 
     /*
@@ -1244,51 +1272,71 @@ __eglMustCastToProperFunctionPointerType eglGetProcAddressImpl(const char *procn
      */
 
     const std::string name(procname);
-
-    auto& extentionMap = sGLExtentionMap;
-    auto pos = extentionMap.find(name);
-    addr = (pos != extentionMap.end()) ? pos->second : nullptr;
-    const int slot = sGLExtentionSlot;
-
-    ALOGE_IF(slot >= MAX_NUMBER_OF_GL_EXTENSIONS,
-             "no more slots for eglGetProcAddress(\"%s\")",
-             procname);
-
+    auto& extensionMap = sGLExtensionMap;
+    auto& extensionSlotMap = sGLExtensionSlotMap;
     egl_connection_t* const cnx = &gEGLImpl;
     LayerLoader& layer_loader(LayerLoader::getInstance());
 
-    if (!addr && (slot < MAX_NUMBER_OF_GL_EXTENSIONS)) {
+    // See if we've already looked up this extension
+    auto pos = extensionMap.find(name);
+    addr = (pos != extensionMap.end()) ? pos->second : nullptr;
 
-        if (cnx->dso && cnx->egl.eglGetProcAddress) {
+    if (!addr) {
+        // This is the first time we've looked this function up
+        // Ensure we have room to track it
+        const int slot = sGLExtensionSlot;
+        if (slot < MAX_NUMBER_OF_GL_EXTENSIONS) {
 
-            // Extensions are independent of the bound context
-            addr = cnx->egl.eglGetProcAddress(procname);
-            if (addr) {
+            if (cnx->dso && cnx->egl.eglGetProcAddress) {
 
-                // purposefully track the bottom of the stack in extensionMap
-                extentionMap[name] = addr;
+                // Extensions are independent of the bound context
+                addr = cnx->egl.eglGetProcAddress(procname);
+                if (addr) {
 
-                // Apply layers
-                addr = layer_loader.ApplyLayers(procname, addr);
+                    // purposefully track the bottom of the stack in extensionMap
+                    extensionMap[name] = addr;
 
-                // Track the top most entry point
-                cnx->hooks[egl_connection_t::GLESv1_INDEX]->ext.extensions[slot] =
-                cnx->hooks[egl_connection_t::GLESv2_INDEX]->ext.extensions[slot] = addr;
-                addr = gExtensionForwarders[slot];
-                sGLExtentionSlot++;
+                    // Apply layers
+                    addr = layer_loader.ApplyLayers(procname, addr);
+
+                    // Track the top most entry point return the extension forwarder
+                    gHooksNoContext.ext.extensions[slot] =
+                    cnx->hooks[egl_connection_t::GLESv1_INDEX]->ext.extensions[slot] =
+                    cnx->hooks[egl_connection_t::GLESv2_INDEX]->ext.extensions[slot] = addr;
+                    addr = gExtensionForwarders[slot];
+
+                    // Remember the slot for this extension
+                    extensionSlotMap[name] = slot;
+
+                    // Increment the global extension index
+                    sGLExtensionSlot++;
+                }
             }
+        } else {
+            // The extension forwarder has a fixed number of slots
+            ALOGE("no more slots for eglGetProcAddress(\"%s\")", procname);
         }
 
-    } else if (slot < MAX_NUMBER_OF_GL_EXTENSIONS) {
+    } else {
+        // We tracked an address, so we've seen this func before
+        // Look up the slot for this extension
+        auto slot_pos = extensionSlotMap.find(name);
+        int ext_slot = (slot_pos != extensionSlotMap.end()) ? slot_pos->second : -1;
+        if (ext_slot < 0) {
+            // Something has gone wrong, this should not happen
+            ALOGE("No extension slot found for %s", procname);
+            return nullptr;
+        }
 
-        // We've seen this func before, but we tracked the bottom, so re-apply layers
-        // More layers might have been enabled
+        // We tracked the bottom of the stack, so re-apply layers since
+        // more layers might have been enabled
         addr = layer_loader.ApplyLayers(procname, addr);
 
-        // Track the top most entry point
-        cnx->hooks[egl_connection_t::GLESv1_INDEX]->ext.extensions[slot] =
-        cnx->hooks[egl_connection_t::GLESv2_INDEX]->ext.extensions[slot] = addr;
-        addr = gExtensionForwarders[slot];
+        // Track the top most entry point and return the extension forwarder
+        gHooksNoContext.ext.extensions[ext_slot] =
+        cnx->hooks[egl_connection_t::GLESv1_INDEX]->ext.extensions[ext_slot] =
+        cnx->hooks[egl_connection_t::GLESv2_INDEX]->ext.extensions[ext_slot] = addr;
+        addr = gExtensionForwarders[ext_slot];
     }
 
     pthread_mutex_unlock(&sExtensionMapMutex);
@@ -1542,6 +1590,76 @@ EGLBoolean eglSurfaceAttribImpl(
     }
     return setError(EGL_BAD_SURFACE, (EGLBoolean)EGL_FALSE);
 }
+
+#ifdef MTK_GAMEPQ
+EGLBoolean eglSurfaceAttribMTKImpl(
+        EGLDisplay dpy, EGLSurface surface, EGLint attribute, EGLint value_version, EGLint *values, EGLint value_size)
+{
+    /*
+     * Debug-Property: debug.mediatek.game_pq_debug
+     *   0: Disable the debug-mechanism
+     *   1: Force bypass this function (Do nothing)
+     *   2: Force reset the GAME-PQ feature
+     */
+    char value[PROPERTY_VALUE_MAX];
+    if (property_get("debug.mediatek.game_pq_debug", value, "0")) {
+        if (1 == atoi(value)) {
+            ALOGI("[Debug] Force bypass the eglSurfaceAttribMTKImpl function");
+            return EGL_TRUE;
+        }
+        else if (2 == atoi(value)) {
+            ALOGI("[Debug] Force reset the GAME-PQ feature");
+            values = NULL;
+            value_size = 0;
+        }
+    }
+
+    const egl_display_ptr dp = validate_display(dpy);
+    if (!dp) return EGL_FALSE;
+
+    SurfaceRef _s(dp.get(), surface);
+    if (!_s.get())
+        return setError(EGL_BAD_SURFACE, (EGLBoolean)EGL_FALSE);
+
+    egl_surface_t * const s = get_surface(surface);
+
+    ANativeWindow* w = s->getNativeWindow();
+    uint64_t usage = 0;
+    int w_error = 0;
+    w_error = native_window_get_consumer_usage(w, &usage);
+
+    /*
+     * Because AOSP codes only check if the bit-value is "1" to do re-alloc buffer.
+     * MTK "gralloc_extra" module define the "NO_COMPRESS" & "COMPRESS" enum usage (gralloc1_mtk_defs.h) as follows.
+     *     GRALLOC_USAGE_NO_COMPRESS = GRALLOC1_CONSUMER_USAGE_PRIVATE_3
+     *     GRALLOC_USAGE_COMPRESS    = GRALLOC1_CONSUMER_USAGE_PRIVATE_8
+     */
+    if (w_error == NO_ERROR) {
+        usage |= GRALLOC1_PRODUCER_USAGE_GPU_RENDER_TARGET;
+        if (NULL == values || 0 == value_size) {
+            usage |= GRALLOC1_USAGE_COMPRESS;
+            usage &= ~GRALLOC1_USAGE_NO_COMPRESS;
+        } else {
+            usage |= GRALLOC1_USAGE_NO_COMPRESS;
+            usage &= ~GRALLOC1_USAGE_COMPRESS;
+        }
+        w_error = native_window_set_usage(w, usage);
+        if (w_error != NO_ERROR) {
+            ALOGE("eglSurfaceAttribMTKImpl native_window_set_usage err: %d", w_error);
+            return setError(EGL_BAD_SURFACE, (EGLBoolean)EGL_FALSE);
+        }
+    } else {
+        ALOGE("eglSurfaceAttribMTKImpl native_window_get_consumer_usage err: %d", w_error);
+        return setError(EGL_BAD_SURFACE, (EGLBoolean)EGL_FALSE);
+    }
+
+    if (s->cnx->egl.eglSurfaceAttribMTK) {
+        return s->cnx->egl.eglSurfaceAttribMTK(
+                dp->disp.dpy, s->surface, attribute, value_version, values, value_size);
+    }
+    return setError(EGL_BAD_SURFACE, (EGLBoolean)EGL_FALSE);
+}
+#endif
 
 EGLBoolean eglBindTexImageImpl(
         EGLDisplay dpy, EGLSurface surface, EGLint buffer)
@@ -2653,6 +2771,9 @@ static const implementation_map_t sPlatformImplMap[] = {
     { "eglQueryString", (EGLFuncPointer)&eglQueryStringImpl },
     { "eglQueryStringImplementationANDROID", (EGLFuncPointer)&eglQueryStringImplementationANDROIDImpl },
     { "eglSurfaceAttrib", (EGLFuncPointer)&eglSurfaceAttribImpl },
+#ifdef MTK_GAMEPQ
+    { "eglSurfaceAttribMTK", (EGLFuncPointer)&eglSurfaceAttribMTKImpl },
+#endif
     { "eglBindTexImage", (EGLFuncPointer)&eglBindTexImageImpl },
     { "eglReleaseTexImage", (EGLFuncPointer)&eglReleaseTexImageImpl },
     { "eglSwapInterval", (EGLFuncPointer)&eglSwapIntervalImpl },

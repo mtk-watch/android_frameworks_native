@@ -32,6 +32,9 @@
 #include "SurfaceFlinger.h"
 #include "SurfaceFlingerFactory.h"
 #include "SurfaceFlingerProperties.h"
+#ifdef MTK_SF_DEBUG_SUPPORT
+#include "mediatek/CoreDump.h"
+#endif
 
 using namespace android;
 
@@ -74,6 +77,9 @@ static status_t startDisplayService() {
 
 int main(int, char**) {
     signal(SIGPIPE, SIG_IGN);
+#ifdef MTK_SF_DEBUG_SUPPORT
+    directcoredump_init();
+#endif
 
     hardware::configureRpcThreadpool(1 /* maxThreads */,
             false /* callerWillJoin */);

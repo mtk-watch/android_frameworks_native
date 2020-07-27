@@ -605,6 +605,13 @@ Error Composer::setColorTransform(Display display, const float* matrix,
 {
     mWriter.selectDisplay(display);
     mWriter.setColorTransform(matrix, hint);
+#ifdef MTK_COLOR_TRANSFORM_NO_SWITCH_BETWEEN_GPU_AND_HWC
+    Return<Error> ret(Error::NONE);
+    Error error = execute();
+    if (error != Error::NONE) {
+        return error;
+    }
+#endif
     return Error::NONE;
 }
 
@@ -913,7 +920,12 @@ Error Composer::execute()
 
             if (command == IComposerClient::Command::VALIDATE_DISPLAY ||
                 command == IComposerClient::Command::PRESENT_DISPLAY ||
+#ifdef MTK_COLOR_TRANSFORM_NO_SWITCH_BETWEEN_GPU_AND_HWC
+                command == IComposerClient::Command::PRESENT_OR_VALIDATE_DISPLAY ||
+                command == IComposerClient::Command::SET_COLOR_TRANSFORM) {
+#else
                 command == IComposerClient::Command::PRESENT_OR_VALIDATE_DISPLAY) {
+#endif
                 error = cmdErr.error;
             } else {
                 ALOGW("command 0x%x generated error %d",

@@ -254,6 +254,37 @@ private:
     };
     friend class FlushTracer;
     std::unique_ptr<FlushTracer> mFlushTracer;
+#ifdef MTK_SF_DEBUG_SUPPORT
+public:
+    void enableDebugLine(bool enable) { mEnableDebugLine = enable; }
+    void setDebugLineConfig(int32_t width, int32_t height,
+                            std::uint32_t flipCount, uint32_t color, uint32_t steps);
+private:
+    bool isEnabledDebugLine() { return mEnableDebugLine; }
+    void drawDebugLine();
+
+    bool mEnableDebugLine = false;
+    int32_t mDebugLineWidth;
+    int32_t mDebugLineHeight;
+    std::uint32_t mDebugLineFlipCount;
+    uint32_t mDebugLineColor;
+    uint32_t mDebugLineSteps;
+#endif
+
+#ifdef MTK_DISP_COLOR_TRANSFORM_IS_NON_LINEAR
+    void setDispColorTransform(const mat4& colorTransform);
+#endif
+#ifdef MTK_IN_DISPLAY_FINGERPRINT
+private:
+    GLuint mDitherTableTexName;
+    Description::EGLVendor mVendor;
+protected:
+    void setupLayerDither(bool val);
+    void setupLayerTexturingByDitherTable(const Texture& texture);
+    void initDitherTable();
+    void initEGLVendor();
+    void setupEGLVendor();
+#endif
 };
 
 } // namespace gl

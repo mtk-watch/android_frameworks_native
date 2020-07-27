@@ -29,6 +29,10 @@
 namespace android {
 
 class FenceTime;
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+class DispSyncEnhancementApi;
+struct DispSyncEnhancementFunctionList;
+#endif
 
 class DispSync {
 public:
@@ -67,6 +71,11 @@ public:
 protected:
     DispSync(DispSync const&) = delete;
     DispSync& operator=(DispSync const&) = delete;
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+public:
+    virtual bool obeyResync() = 0;
+    virtual status_t setVSyncMode(int32_t mode, int32_t fps) = 0;
+#endif
 };
 
 namespace impl {
@@ -265,6 +274,30 @@ private:
 
     // Flag to turn on logging in systrace.
     bool mTraceDetailedInfo = false;
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+public:
+    // Notify caller that it should not reset the DispSync to default value
+    bool obeyResync();
+
+    // Used to change the mode and fps of VSync
+    status_t setVSyncMode(int32_t mode, int32_t fps);
+
+private:
+    // Initial DispSyncEnhancement
+    void initDispVsyncEnhancement();
+
+    // Whether we have to enable HW VSync to calibrate VSync when get a new present fence
+    bool addPresentFenceEnhancementLocked(bool* res);
+
+    // Whether we have to enable HW VSync to calibrate VSync when get a new HW VSync
+    bool addResyncSampleEnhancementLocked(bool* res, nsecs_t timestamp);
+
+    // dump other debuf info
+    void dumpEnhanceInfo(std::string& result) const;
+
+    // create function list for DispSyncEnhancement
+    void getDispSyncEnhancementFunctionList(struct DispSyncEnhancementFunctionList* list);
+#endif
 };
 
 } // namespace impl

@@ -65,6 +65,7 @@ LIBEGL {
     eglStreamConsumerGLTextureExternalKHR; # introduced=23
     eglStreamConsumerReleaseKHR; # introduced=23
     eglSurfaceAttrib;
+    eglSurfaceAttribMTK;
     eglSwapBuffers;
     eglSwapBuffersWithDamageKHR; # introduced=23
     eglSwapInterval;

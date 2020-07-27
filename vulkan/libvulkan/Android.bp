@@ -39,6 +39,7 @@ cc_library_shared {
         "-DLOG_TAG=\"vulkan\"",
         "-DVK_USE_PLATFORM_ANDROID_KHR",
         "-DVK_NO_PROTOTYPES",
+        "-DMTK_GPUD_SUPPORT",
         "-fvisibility=hidden",
         "-fstrict-aliasing",
         "-Weverything",
@@ -98,6 +99,7 @@ cc_library_shared {
         "libnativeloader_lazy",
         "libnativewindow",
         "android.hardware.graphics.common@1.0",
+        "libgpud_sys",
     ],
     static_libs: ["libgrallocusage"],
 }

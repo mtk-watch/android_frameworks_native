@@ -16,7 +16,9 @@
 
 #include <system/graphics.h>
 #include <ui/Rect.h>
-
+#ifdef MTK_LIBUI_DEBUG_SUPPORT
+#include <cutils/compiler.h>
+#endif
 namespace android {
 
 const Rect Rect::INVALID_RECT{0, 0, -1, -1};
@@ -29,6 +31,19 @@ static inline int32_t min(int32_t a, int32_t b) {
 static inline int32_t max(int32_t a, int32_t b) {
     return (a > b) ? a : b;
 }
+
+#ifdef MTK_LIBUI_DEBUG_SUPPORT
+static inline bool check_add_overflow(int32_t a, int32_t b) {
+    if (a >= 0) {
+        if (b > (INT_MAX - a))
+            return true;
+    } else {
+        if (b < (INT_MIN - a))
+            return true;
+    }
+    return false;
+}
+#endif
 
 void Rect::makeInvalid() {
     left = 0;
@@ -64,7 +79,20 @@ Rect& Rect::offsetTo(int32_t x, int32_t y) {
     return *this;
 }
 
+#ifdef MTK_LIBUI_BYPASS_INTERGER_OVERFLOW_CHECK
+__attribute__((no_sanitize("signed-integer-overflow")))
+#endif
 Rect& Rect::offsetBy(int32_t x, int32_t y) {
+#ifdef MTK_LIBUI_DEBUG_SUPPORT
+    if (CC_UNLIKELY(check_add_overflow(left, x)))
+        ALOGE("offsetBy left:%d x:%d", left, x);
+    if (CC_UNLIKELY(check_add_overflow(top, y)))
+        ALOGE("offsetBy top:%d y:%d", top, y);
+    if (CC_UNLIKELY(check_add_overflow(right, x)))
+        ALOGE("offsetBy right:%d x:%d", right, x);
+    if (CC_UNLIKELY(check_add_overflow(bottom, y)))
+        ALOGE("offsetBy bottom:%d y:%d", bottom, y);
+#endif
     left += x;
     top += y;
     right += x;

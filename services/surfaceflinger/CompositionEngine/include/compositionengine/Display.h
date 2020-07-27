@@ -52,6 +52,9 @@ public:
     // Creates a render surface for the display
     virtual void createRenderSurface(RenderSurfaceCreationArgs&&) = 0;
 
+#ifdef MTK_COLOR_TRANSFORM_NO_SWITCH_BETWEEN_GPU_AND_HWC
+    virtual status_t getStatusOfColorTransform() const = 0;
+#endif
 protected:
     ~Display() = default;
 };

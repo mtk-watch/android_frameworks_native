@@ -98,6 +98,9 @@ message LayerProto {
   FloatRectProto screen_bounds = 46;
 
   InputWindowInfoProto input_window_info = 47;
+
+  //Mediatek add for dump BufferQueueCore state
+  string bqcoreinfo = 48;
 }
 
 message PositionProto {

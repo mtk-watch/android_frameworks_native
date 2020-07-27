@@ -197,9 +197,10 @@ RegionSamplingThread::~RegionSamplingThread() {
 
 void RegionSamplingThread::addListener(const Rect& samplingArea, const sp<IBinder>& stopLayerHandle,
                                        const sp<IRegionSamplingListener>& listener) {
-    wp<Layer> stopLayer = stopLayerHandle != nullptr
-            ? static_cast<Layer::Handle*>(stopLayerHandle.get())->owner
-            : nullptr;
+    wp<Layer> stopLayer;
+    if (stopLayerHandle != nullptr && stopLayerHandle->localBinder() != nullptr) {
+        stopLayer = static_cast<Layer::Handle*>(stopLayerHandle.get())->owner;
+    }
 
     sp<IBinder> asBinder = IInterface::asBinder(listener);
     asBinder->linkToDeath(this);
@@ -342,9 +343,19 @@ void RegionSamplingThread::captureSample() {
     }
 
     const auto device = mFlinger.getDefaultDisplayDevice();
-    const auto display = device->getCompositionDisplay();
-    const auto state = display->getState();
-    const auto orientation = static_cast<ui::Transform::orientation_flags>(state.orientation);
+    const auto orientation = [](uint32_t orientation) {
+        switch (orientation) {
+            default:
+            case DisplayState::eOrientationDefault:
+                return ui::Transform::ROT_0;
+            case DisplayState::eOrientation90:
+                return ui::Transform::ROT_90;
+            case DisplayState::eOrientation180:
+                return ui::Transform::ROT_180;
+            case DisplayState::eOrientation270:
+                return ui::Transform::ROT_270;
+        }
+    }(device->getOrientation());
 
     std::vector<RegionSamplingThread::Descriptor> descriptors;
     Region sampleRegion;

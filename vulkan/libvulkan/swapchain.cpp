@@ -30,6 +30,10 @@
 #include <unordered_set>
 #include <vector>
 
+#ifdef MTK_GPUD_SUPPORT
+#include <gpud/gpud_api.h>
+#endif
+
 #include "driver.h"
 
 using android::hardware::graphics::common::V1_0::BufferUsage;
@@ -1689,6 +1693,9 @@ VkResult QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* present_info) {
                     }
                 }
 
+#ifdef MTK_GPUD_SUPPORT
+                GPUD_API_ENTRY(VkDumpPresentFrame, window, img.buffer.get(), fence);
+#endif
                 err = window->queueBuffer(window, img.buffer.get(), fence);
                 // queueBuffer always closes fence, even on error
                 if (err != 0) {

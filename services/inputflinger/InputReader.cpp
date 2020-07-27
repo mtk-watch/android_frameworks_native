@@ -59,6 +59,13 @@
 #include <input/VirtualKeyMap.h>
 #include <statslog.h>
 
+/// M: for input MET systrace  @{
+#include <utils/Trace.h>
+/// @}
+/// M: for nwk @{
+#include <dlfcn.h>
+/// @}
+
 #define INDENT "  "
 #define INDENT2 "    "
 #define INDENT3 "      "
@@ -66,6 +73,12 @@
 #define INDENT5 "          "
 
 using android::base::StringPrintf;
+/// M: for nwk @{
+#define LIB_FULL_NAME "libnwk_opt_halwrap.so"
+void *nwk_handle = NULL;
+static int (*NwkOptHal_wrap_setDisplayViewport)(int32_t, int32_t, int32_t) = NULL;
+typedef int (*set_display_viewport)(int32_t, int32_t, int32_t);
+/// @}
 
 namespace android {
 
@@ -267,6 +280,9 @@ InputReader::InputReader(const sp<EventHubInterface>& eventHub,
         mNextSequenceNum(1), mGlobalMetaState(0), mGeneration(1),
         mDisableVirtualKeysTimeout(LLONG_MIN), mNextTimeout(LLONG_MAX),
         mConfigurationChangesToRefresh(0) {
+    /// M: for nwk @{
+    void *func;
+    /// @}
     mQueuedListener = new QueuedInputListener(listener);
 
     { // acquire lock
@@ -275,12 +291,31 @@ InputReader::InputReader(const sp<EventHubInterface>& eventHub,
         refreshConfigurationLocked(0);
         updateGlobalMetaStateLocked();
     } // release lock
+    /// M: for nwk @{
+    nwk_handle = dlopen(LIB_FULL_NAME, RTLD_NOW);
+    if (nwk_handle != NULL) {
+        func = dlsym(nwk_handle, "NwkOptHal_wrap_setDisplayViewport_S");
+        NwkOptHal_wrap_setDisplayViewport = reinterpret_cast<set_display_viewport>(func);
+        if (NwkOptHal_wrap_setDisplayViewport == NULL) {
+            ALOGE("NwkOptHal_wrap_setDisplayViewport init fail!");
+            dlclose(nwk_handle);
+            nwk_handle = NULL;
+        }
+    }
+    /// @}
 }
 
 InputReader::~InputReader() {
     for (size_t i = 0; i < mDevices.size(); i++) {
         delete mDevices.valueAt(i);
     }
+    /// M: for nwk @{
+    if (nwk_handle != NULL) {
+        dlclose(nwk_handle);
+        nwk_handle = NULL;
+    }
+    /// @}
+
 }
 
 void InputReader::loopOnce() {
@@ -3557,7 +3592,10 @@ void TouchInputMapper::configureSurface(nsecs_t when, bool* outResetNeeded) {
     bool viewportChanged = mViewport != *newViewport;
     if (viewportChanged) {
         mViewport = *newViewport;
-
+        /// M: for nwk @{
+        if (NwkOptHal_wrap_setDisplayViewport)
+            NwkOptHal_wrap_setDisplayViewport(mViewport.orientation, rawWidth, rawHeight);
+        /// @}
         if (mDeviceMode == DEVICE_MODE_DIRECT || mDeviceMode == DEVICE_MODE_POINTER) {
             // Convert rotated viewport to natural surface coordinates.
             int32_t naturalLogicalWidth, naturalLogicalHeight;
@@ -4822,7 +4860,9 @@ void TouchInputMapper::dispatchTouches(nsecs_t when, uint32_t policyFlags) {
         // Dispatch pointer up events.
         while (!upIdBits.isEmpty()) {
             uint32_t upId = upIdBits.clearFirstMarkedBit();
-
+            /// M: for input MET systrace  @{
+            ScopedTrace _l(ATRACE_TAG_INPUT, "AppLaunch_dispatchPtr:Up");
+           ///  @}
             dispatchMotion(when, policyFlags, mSource,
                     AMOTION_EVENT_ACTION_POINTER_UP, 0, 0, metaState, buttonState, 0,
                     mCurrentCookedState.deviceTimestamp,
@@ -4855,6 +4895,9 @@ void TouchInputMapper::dispatchTouches(nsecs_t when, uint32_t policyFlags) {
             if (dispatchedIdBits.count() == 1) {
                 // First pointer is going down.  Set down time.
                 mDownTime = when;
+                /// M: for input MET systrace  @{
+                ScopedTrace _l(ATRACE_TAG_INPUT, "AppLaunch_dispatchPtr:Down");
+                /// @}
             }
 
             dispatchMotion(when, policyFlags, mSource,

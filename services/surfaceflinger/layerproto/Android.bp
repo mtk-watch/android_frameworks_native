@@ -32,6 +32,8 @@ cc_library_shared {
         "-Wno-padded",
         "-Wno-old-style-cast",
         "-Wno-undef",
+        //MTK added
+        "-DMTK_SF_DEBUG_SUPPORT",
     ],
 
 }

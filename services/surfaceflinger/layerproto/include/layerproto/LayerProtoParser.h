@@ -115,6 +115,9 @@ public:
         bool isProtected;
         float cornerRadius;
         LayerMetadata metadata;
+#ifdef MTK_SF_DEBUG_SUPPORT
+        std::string bqcoreInfo;
+#endif
 
         std::string to_string() const;
     };

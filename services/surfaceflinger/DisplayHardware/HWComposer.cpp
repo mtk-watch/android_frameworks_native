@@ -663,6 +663,10 @@ status_t HWComposer::setColorTransform(DisplayId displayId, const mat4& transfor
     auto error = displayData.hwcDisplay->setColorTransform(transform,
             isIdentity ? HAL_COLOR_TRANSFORM_IDENTITY :
             HAL_COLOR_TRANSFORM_ARBITRARY_MATRIX);
+#ifdef MTK_COLOR_TRANSFORM_NO_SWITCH_BETWEEN_GPU_AND_HWC
+    if (error == HWC2::Error::Unsupported)
+        return BAD_VALUE;
+#endif
     RETURN_IF_HWC_ERROR(error, displayId, UNKNOWN_ERROR);
     return NO_ERROR;
 }

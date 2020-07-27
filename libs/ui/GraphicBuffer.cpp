@@ -32,6 +32,10 @@
 #include <ui/GraphicBufferMapper.h>
 #include <utils/Trace.h>
 
+#ifdef MTK_LIBUI_DEBUG_SUPPORT
+#include <inttypes.h>
+#endif
+
 namespace android {
 
 // ===========================================================================
@@ -91,6 +95,12 @@ GraphicBuffer::GraphicBuffer(uint32_t inWidth, uint32_t inHeight, PixelFormat in
       : GraphicBuffer() {
     mInitCheck = initWithSize(inWidth, inHeight, inFormat, inLayerCount, inUsage,
                               std::move(requestorName));
+#ifdef MTK_LIBUI_DEBUG_SUPPORT
+#ifndef MTK_USER_BUILD
+    ALOGI("create GraphicBuffer by ANativeWindowBuffer, handle(%p) (w:%d h:%d s:%d f:%#x u:%" PRIx64 ") owner(%d)",
+          handle, width, height, stride, format, usage, mOwner);
+#endif
+#endif
 }
 
 // deprecated
@@ -101,6 +111,12 @@ GraphicBuffer::GraphicBuffer(uint32_t inWidth, uint32_t inHeight,
             inWidth, inHeight, inFormat, inLayerCount, static_cast<uint64_t>(inUsage),
             inStride)
 {
+#ifdef MTK_LIBUI_DEBUG_SUPPORT
+#ifndef MTK_USER_BUILD
+    ALOGI("create GraphicBuffer by ANativeWindowBuffer, handle(%p) (w:%d h:%d s:%d f:%#x u:%d) owner(%d)",
+          handle, width, height, stride, format, inUsage, mOwner);
+#endif
+#endif
 }
 
 GraphicBuffer::GraphicBuffer(const native_handle_t* inHandle, HandleWrapMethod method,
@@ -109,6 +125,12 @@ GraphicBuffer::GraphicBuffer(const native_handle_t* inHandle, HandleWrapMethod m
       : GraphicBuffer() {
     mInitCheck = initWithHandle(inHandle, method, inWidth, inHeight, inFormat, inLayerCount,
                                 inUsage, inStride);
+#ifdef MTK_LIBUI_DEBUG_SUPPORT
+#ifndef MTK_USER_BUILD
+    ALOGI("create GraphicBuffer by ANativeWindowBuffer, handle(%p) (w:%d h:%d s:%d f:%#x u:%" PRIx64 ") owner(%d)",
+          handle, width, height, stride, format, usage, mOwner);
+#endif
+#endif
 }
 
 #ifndef LIBUI_IN_VNDK
@@ -142,6 +164,12 @@ void GraphicBuffer::free_handle()
 {
     if (mOwner == ownHandle) {
         mBufferMapper.freeBuffer(handle);
+#ifdef MTK_LIBUI_DEBUG_SUPPORT
+#ifndef MTK_USER_BUILD
+        ALOGD("unregister, handle(%p) (w:%d h:%d s:%d f:%#x u:%" PRIx64 ")",
+              handle, width, height, stride, format, usage);
+#endif
+#endif
     } else if (mOwner == ownData) {
         GraphicBufferAllocator& allocator(GraphicBufferAllocator::get());
         allocator.free(handle);
@@ -540,6 +568,12 @@ status_t GraphicBuffer::unflatten(void const*& buffer, size_t& size, int const*&
         buffer_handle_t importedHandle;
         status_t err = mBufferMapper.importBuffer(handle, uint32_t(width), uint32_t(height),
                 uint32_t(layerCount), format, usage, uint32_t(stride), &importedHandle);
+#ifdef MTK_LIBUI_DEBUG_SUPPORT
+#ifndef MTK_USER_BUILD
+        ALOGD("register, handle(%p) importBuffer(%p) (w:%d h:%d s:%d f:%#x u:%#08x)",
+              handle, importedHandle, width, height, stride, format, usage);
+#endif
+#endif
         if (err != NO_ERROR) {
             width = height = stride = format = usage_deprecated = 0;
             layerCount = 0;

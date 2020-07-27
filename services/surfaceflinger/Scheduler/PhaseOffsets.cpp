@@ -99,6 +99,9 @@ PhaseOffsets::PhaseOffsets() {
 
 PhaseOffsets::Offsets PhaseOffsets::getOffsetsForRefreshRate(
         android::scheduler::RefreshRateConfigs::RefreshRateType refreshRateType) const {
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+    std::lock_guard<std::mutex> lock(mOffsetLock);
+#endif
     switch (refreshRateType) {
         case RefreshRateConfigs::RefreshRateType::PERFORMANCE:
             return mHighRefreshRateOffsets;

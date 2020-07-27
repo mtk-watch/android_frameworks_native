@@ -7,6 +7,27 @@ cc_defaults {
         "-Wthread-safety",
         "-Wunused",
         "-Wunreachable-code",
+        "-DMTK_AOSP_DISPLAY_BUGFIX",
+        "-DMTK_VSYNC_MODIFICATION_SUPPORT",
+        "-DMTK_VSYNC_HINT_SUPPORT",
+        "-DMTK_BOOT_PROF",
+        "-DMTK_VSYNC_ENHANCEMENT_SUPPORT",
+        "-DMTK_VENDOR_LATCH_UNSIGNALED",
+        "-DMTK_DISPLAY_DEJITTER",
+        "-DMTK_DISABLE_COLOR_TRANSFORM_FOR_SECONDARY_DISPLAYS",
+        "-DMTK_DISPLAY_DECOMPRESSION",
+        "-DMTK_SF_WATCHDOG_SUPPORT",
+        "-DMTK_SF_DEBUG_SUPPORT",
+        "-DMTK_SF_HWC_VDS_SUPPORT",
+        "-DMTK_COLOR_TRANSFORM_NO_SWITCH_BETWEEN_GPU_AND_HWC",
+        "-DMTK_HDR_DISPLAY_SUPPORT",
+        "-DMTK_VIRTUAL_DISPLAY_SHOW_SURFACE_UPDATES",
+        "-DMTK_IN_DISPLAY_FINGERPRINT"
+    ],
+    include_dirs: [
+        // MTK AOSP enhancement required
+        "vendor/mediatek/proprietary/hardware/libgem/inc",
+        "vendor/mediatek/proprietary/hardware/gralloc_extra/include",
     ],
 }
 
@@ -158,6 +179,16 @@ filegroup {
         "SurfaceTracing.cpp",
         "TimeStats/TimeStats.cpp",
         "TransactionCompletedThread.cpp",
+
+        // MTK AOSP enhancement required
+        "mediatek/SurfaceFlinger.cpp",
+        "mediatek/Scheduler/PhaseOffsets.cpp",
+        "mediatek/Scheduler/DispSync.cpp",
+        "mediatek/SFWatchDogAPILoader.cpp",
+        "mediatek/SFProperty.cpp",
+        "mediatek/MtkDebugAPI.cpp",
+        "mediatek/DispSyncEnhancementApiLoader.cpp",
+        "mediatek/BufferLayer.cpp",
     ],
 }
 
@@ -174,6 +205,11 @@ cc_library_shared {
         "SurfaceFlingerFactory.cpp",
     ],
     logtags: ["EventLog/EventLogTags.logtags"],
+
+    // MTK AOSP enhancement required
+    shared_libs: [
+      "libgralloc_extra_sys",
+    ],
 }
 
 cc_defaults {
@@ -213,7 +249,10 @@ cc_defaults {
 
 filegroup {
     name: "surfaceflinger_binary_sources",
-    srcs: ["main_surfaceflinger.cpp"],
+    srcs: ["main_surfaceflinger.cpp",
+           // MTK AOSP enhancement required
+           "mediatek/CoreDump.cpp",
+    ],
 }
 
 cc_binary {

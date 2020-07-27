@@ -35,6 +35,34 @@
 
 namespace android {
 
+#ifdef MTK_LIBUI_DEBUG_SUPPORT
+void dumpFence(int fd);
+
+void dumpFence(int fd) {
+    if (-1 == fd) return;
+
+    struct sync_file_info* info = sync_file_info(fd);
+    if (info) {
+        // status: active(0) signaled(1) error(<0)
+        ALOGI("fence(%s) status(%d)", info->name, info->status);
+
+        const auto fences = sync_get_fence_info(info);
+        for (uint32_t i = 0; i < info->num_fences; i++) {
+            uint64_t ts_sec = fences[i].timestamp_ns / 1000000000LL;
+            uint64_t ts_usec = (fences[i].timestamp_ns % 1000000000LL) / 1000LL;
+
+            ALOGI("sync point: timeline(%s) drv(%s) status(%d) timestamp(%" PRIu64 ".%06" PRIu64 ")",
+                    fences[i].obj_name,
+                    fences[i].driver_name,
+                    fences[i].status,
+                    ts_sec,
+                    ts_usec);
+        }
+        sync_file_info_free(info);
+    }
+}
+#endif
+
 const sp<Fence> Fence::NO_FENCE = sp<Fence>(new Fence);
 
 Fence::Fence(int fenceFd) :
@@ -64,6 +92,9 @@ status_t Fence::waitForever(const char* logname) {
     if (err < 0 && errno == ETIME) {
         ALOGE("%s: fence %d didn't signal in %u ms", logname, mFenceFd.get(),
                 warningTimeout);
+#ifdef MTK_LIBUI_DEBUG_SUPPORT
+        dumpFence(mFenceFd);
+#endif
         err = sync_wait(mFenceFd, TIMEOUT_NEVER);
     }
     return err < 0 ? -errno : status_t(NO_ERROR);

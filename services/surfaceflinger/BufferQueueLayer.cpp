@@ -31,12 +31,32 @@
 
 #include "TimeStats/TimeStats.h"
 
+#ifdef MTK_DISPLAY_DEJITTER
+#include <gui/mediatek/DispDeJitterHelper.h>
+#endif
+
 namespace android {
 
-BufferQueueLayer::BufferQueueLayer(const LayerCreationArgs& args) : BufferLayer(args) {}
+#ifdef MTK_SF_DEBUG_SUPPORT
+#define LAYER_ATRACE_BUFFER(x, ...)                                             \
+    if (ATRACE_ENABLED()) {                                                     \
+        char ___traceBuf[256];                                                  \
+        snprintf(___traceBuf, sizeof(___traceBuf), x, ##__VA_ARGS__);           \
+        android::ScopedTrace ___bufTracer(ATRACE_TAG, ___traceBuf);             \
+    }
+#endif
+
+BufferQueueLayer::BufferQueueLayer(const LayerCreationArgs& args) : BufferLayer(args) {
+#ifdef MTK_DISPLAY_DEJITTER
+    mDispDeJitter = DispDeJitterHelper::getInstance().createDispDeJitter();
+#endif
+}
 
 BufferQueueLayer::~BufferQueueLayer() {
     mConsumer->abandon();
+#ifdef MTK_DISPLAY_DEJITTER
+    DispDeJitterHelper::getInstance().destroyDispDeJitter(mDispDeJitter);
+#endif
 }
 
 // -----------------------------------------------------------------------
@@ -110,7 +130,18 @@ bool BufferQueueLayer::shouldPresentNow(nsecs_t expectedPresentTime) const {
              mName.string(), addedTime, expectedPresentTime);
 
     const bool isDue = addedTime < expectedPresentTime;
+
+#ifdef MTK_SF_DEBUG_SUPPORT
+    LAYER_ATRACE_BUFFER("defer %s(ns): expexted:%" PRId64 "  timestamp:%" PRId64,
+            mName.string(), expectedPresentTime, addedTime);
+#endif
+
+#ifdef MTK_DISPLAY_DEJITTER
+    return DispDeJitterHelper::getInstance().shouldPresentNow(mDispDeJitter, mName,
+            mQueueItems[0].mGraphicBuffer, expectedPresentTime, isDue) || !isPlausible;
+#else
     return isDue || !isPlausible;
+#endif
 }
 
 // -----------------------------------------------------------------------
@@ -322,6 +353,45 @@ status_t BufferQueueLayer::updateTexImage(bool& recomputeVisibleRegions, nsecs_t
         }
         return BAD_VALUE;
     } else if (updateResult != NO_ERROR || mUpdateTexImageFailed) {
+#ifdef MTK_AOSP_DISPLAY_BUGFIX
+        // When the layer occurred re-parent, queue buffer and latch buffer at
+        // the same time, the main thread of SurfaceFlinger may not latch buffer
+        // successfully. This layer was tagged a failure. Then it can not be
+        // latched by SurfaceFlinger forever. However it does not failed to create
+        // EGLImage. It just need to try again.
+        // + - - - - - - - - - - - - - - - + - - - - - - - - - - - + - - - - - - - - - - - -
+        // | SF's main thread              | queueBuffer thread    | binder thread
+        // + - - - - - - - - - - - - - - - + - - - - - - - - - - - + - - - - - - - - - - - -
+        // |                               | onFrameAvailable()++  |
+        // |                               | signalLayerUpdate     |
+        // |                               | onFrameAvailable()--  |
+        // | handlePageFlip()++            | onFrameAvailable()++  | setTransactionState()++
+        // |                               |                       | reparent to null
+        // |                               |                       | setTransactionState()--
+        // |                               | fakeVsync()++         |
+        // | latchBuffer()++               | latchBuffer()++       |
+        // | updateTexImage()++            | updateTexImage()++    |
+        // |                               | acquireBufferLocked() |
+        // | acquireBufferLocked()         | updateTexImage()--    |
+        // | reach the max acquired buffer | latchBuffer()--       |
+        // | mUpdateTexImageFailed = true  | usleep()              |
+        // | updateTexImage()--            | releasePendingBuffer()|
+        // | latchBuffer()--               | fakeVsync()--         |
+        // | handlePageFlip()--            | onFrameAvailable()--  |
+        // |                               | onFrameAvailable()    |
+        // | handlePageFlip()++            |                       |
+        // | latchBuffer()++               |                       |
+        // | updateTexImage()++            |                       |
+        // | mUpdateTexImageFailed is true |                       |
+        // | return bad_value              |                       |
+        // | updateTexImage()--            |                       |
+        // | latchBuffer()--               |                       |
+        // | handlePageFlip()--            |                       |
+        if (updateResult == INVALID_OPERATION) {
+            mFlinger->signalLayerUpdate();
+            return BAD_VALUE;
+        }
+#endif
         // This can occur if something goes wrong when trying to create the
         // EGLImage for this buffer. If this happens, the buffer has already
         // been released, so we need to clean up the queue and bug out
@@ -481,6 +551,9 @@ void BufferQueueLayer::onFrameAvailable(const BufferItem& item) {
         mFlinger->signalLayerUpdate();
     }
     mConsumer->onBufferAvailable(item);
+#ifdef MTK_DISPLAY_DEJITTER
+    DispDeJitterHelper::getInstance().markTimestamp(item.mGraphicBuffer);
+#endif
 }
 
 void BufferQueueLayer::onFrameReplaced(const BufferItem& item) {

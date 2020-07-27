@@ -8,16 +8,16 @@
 //#define LOG_NDEBUG 0
 
 // Log debug messages about channel messages (send message, receive message)
-#define DEBUG_CHANNEL_MESSAGES 0
+#define DEBUG_CHANNEL_MESSAGES 1
 
 // Log debug messages whenever InputChannel objects are created/destroyed
-#define DEBUG_CHANNEL_LIFECYCLE 0
+#define DEBUG_CHANNEL_LIFECYCLE 1
 
 // Log debug messages about transport actions
-#define DEBUG_TRANSPORT_ACTIONS 0
+#define DEBUG_TRANSPORT_ACTIONS 1
 
 // Log debug messages about touch event resampling
-#define DEBUG_RESAMPLING 0
+#define DEBUG_RESAMPLING 1
 
 #include <errno.h>
 #include <fcntl.h>
@@ -35,7 +35,30 @@
 
 #include <input/InputTransport.h>
 
+/// M: Switch log by command @{
+static bool gInputLogEnabled = false;
+#undef ALOGD
+#define ALOGD(...) if (gInputLogEnabled) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+/// @}
+
 using android::base::StringPrintf;
+
+/// M: MTK_ARC @{
+/// M:
+/// #ARC# is a feature key for GiFT (Graphics Frame-rate Tuner), which is a
+/// sub-module in DFPS (Dynamic FPS).
+///
+/// ARC (Adaptive Rendering Choreography) is a framework to collect system
+/// information for internal algorithm (ex: GiFT) and to report result(s) to
+/// corresponding module(ex: sending appropriate FPS to FpsPolicyService).
+///
+/// GiFT (Graphics Frame-rate Tuner) is an algorithm of ARC. Its goal is to
+/// suggest an appropriate FPS for games without loss too much quality. The
+/// target is given by analyzing GL commands and input events.
+///
+/// M: Let ARC library getting input events
+#include <input/MTKArcDispatcher.h>
+/// @}
 
 namespace android {
 
@@ -570,9 +593,20 @@ status_t InputPublisher::receiveFinishedSignal(uint32_t* outSeq, bool* outHandle
 InputConsumer::InputConsumer(const sp<InputChannel>& channel) :
         mResampleTouch(isTouchResamplingEnabled()),
         mChannel(channel), mMsgDeferred(false) {
+/// M: MTK_ARC @{
+        mArcHandle = (void*) new MTKArcDispatcher();
+        ALOGI("Create ARC handle: %p", mArcHandle);
+/// @}
 }
 
 InputConsumer::~InputConsumer() {
+/// M: MTK_ARC @{
+    if (mArcHandle != NULL) {
+        ALOGI("Destroy ARC handle: %p", mArcHandle);
+        delete (MTKArcDispatcher*)mArcHandle;
+        mArcHandle = NULL;
+    }
+/// @}
 }
 
 bool InputConsumer::isTouchResamplingEnabled() {
@@ -695,6 +729,12 @@ status_t InputConsumer::consume(InputEventFactoryInterface* factory,
             ALOGD("channel '%s' consumer ~ consumed motion event, seq=%u",
                     mChannel->getName().c_str(), *outSeq);
 #endif
+/// M: MTK_ARC @{
+            //ALOGI("dispatch event(%p) to ARC handle: %p", outEvent, mArcHandle);
+            if(mArcHandle) {
+                ((MTKArcDispatcher*)mArcHandle)->dispatchEvent((MotionEvent*)*outEvent);
+            }
+/// @}
             break;
         }
 
@@ -1194,4 +1234,9 @@ ssize_t InputConsumer::findSampleNoLaterThan(const Batch& batch, nsecs_t time) {
     return ssize_t(index) - 1;
 }
 
+/// M: Switch log by command @{
+void InputChannel::switchInputLog(bool enable) {
+    gInputLogEnabled = enable;
+}
+/// @}
 } // namespace android

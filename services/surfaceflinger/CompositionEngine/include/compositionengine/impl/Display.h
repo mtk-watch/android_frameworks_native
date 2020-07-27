@@ -48,10 +48,16 @@ public:
     void disconnect() override;
     void createDisplayColorProfile(compositionengine::DisplayColorProfileCreationArgs&&) override;
     void createRenderSurface(compositionengine::RenderSurfaceCreationArgs&&) override;
+#ifdef MTK_COLOR_TRANSFORM_NO_SWITCH_BETWEEN_GPU_AND_HWC
+    status_t getStatusOfColorTransform() const override;
+#endif
 
 private:
     const bool mIsVirtual;
     std::optional<DisplayId> mId;
+#ifdef MTK_COLOR_TRANSFORM_NO_SWITCH_BETWEEN_GPU_AND_HWC
+    status_t mStatusOfColorTransform;
+#endif
 };
 
 std::shared_ptr<compositionengine::Display> createDisplay(

@@ -179,14 +179,14 @@ int cmdMain(const std::vector<std::string_view>& argv, TextOutput& outputLog, Te
     if (sm == nullptr) {
         ALOGW("Unable to get default service manager!");
         errorLog << "cmd: Unable to get default service manager!" << endl;
-        return 20;
+        _exit(20);
     }
 
     int argc = argv.size();
 
     if (argc == 0) {
         errorLog << "cmd: No service specified; use -l to list all services" << endl;
-        return 20;
+        _exit(20);
     }
 
     if ((argc == 1) && (argv[0] == "-l")) {
@@ -200,7 +200,7 @@ int cmdMain(const std::vector<std::string_view>& argv, TextOutput& outputLog, Te
                 outputLog << "  " << services[i] << endl;
             }
         }
-        return 0;
+        _exit(0);
     }
 
     const auto cmd = argv[0];
@@ -216,7 +216,7 @@ int cmdMain(const std::vector<std::string_view>& argv, TextOutput& outputLog, Te
             ALOGW("Can't find service %.*s", static_cast<int>(cmd.size()), cmd.data());
         }
         errorLog << "cmd: Can't find service: " << cmd << endl;
-        return 20;
+        _exit(0);
     }
 
     sp<MyShellCallback> cb = new MyShellCallback(errorLog);
@@ -251,5 +251,5 @@ int cmdMain(const std::vector<std::string_view>& argv, TextOutput& outputLog, Te
 #if DEBUG
     ALOGD("result=%d", (int)res);
 #endif
-    return res;
+    _exit(res);
 }

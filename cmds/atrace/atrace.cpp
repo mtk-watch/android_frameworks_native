@@ -1287,6 +1287,8 @@ int main(int argc, char **argv)
             {"only_userspace",    no_argument, nullptr,  0 },
             {"list_categories",   no_argument, nullptr,  0 },
             {"stream",            no_argument, nullptr,  0 },
+            /// M: Support poke_services cmd in atrace
+            {"poke_services",     no_argument, nullptr,  0 },
             {nullptr,                       0, nullptr,  0 }
         };
 
@@ -1365,6 +1367,12 @@ int main(int argc, char **argv)
                 } else if (!strcmp(long_options[option_index].name, "list_categories")) {
                     listSupportedCategories();
                     exit(0);
+                /// M: Support poke_services cmd in atrace @{
+                } else if (!strcmp(long_options[option_index].name, "poke_services")) {
+                    pokeBinderServices();
+                    pokeHalServices();
+                    exit(0);
+                /// M: @}
                 }
             break;
 

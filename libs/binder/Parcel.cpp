@@ -2463,6 +2463,12 @@ const flat_binder_object* Parcel::readObject(bool nullMetaData) const
         const flat_binder_object* obj
                 = reinterpret_cast<const flat_binder_object*>(mData+DPOS);
         mDataPos = DPOS + sizeof(flat_binder_object);
+#if defined(__arm__)
+        if (((uintptr_t)obj & 0x3) != 0) {
+            ALOGE("Pointer of obj %p: %zu is not alignment", this, (uintptr_t)obj);
+            return nullptr;
+        }
+#endif
         if (!nullMetaData && (obj->cookie == 0 && obj->binder == 0)) {
             // When transferring a NULL object, we don't write it into
             // the object list, so we don't want to check for it when
@@ -2839,11 +2845,13 @@ status_t Parcel::continueWrite(size_t desired)
             if (objectsSize == 0) {
                 free(mObjects);
                 mObjects = nullptr;
+                mObjectsCapacity = 0;
             } else {
                 binder_size_t* objects =
                     (binder_size_t*)realloc(mObjects, objectsSize*sizeof(binder_size_t));
                 if (objects) {
                     mObjects = objects;
+                    mObjectsCapacity = objectsSize;
                 }
             }
             mObjectsSize = objectsSize;

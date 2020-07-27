@@ -31,6 +31,10 @@
 #include <sys/utsname.h>
 #include <unistd.h>
 
+/// M: touch filter header @{
+#include <dlfcn.h>
+/// @}
+
 #define LOG_TAG "EventHub"
 
 // #define LOG_NDEBUG 0
@@ -65,10 +69,22 @@
 #define INDENT2 "    "
 #define INDENT3 "      "
 
+/// M: touch filter call @{
+#define LIB_TOUCH_FILTER "libtouchfilter.so"
+void *touch_filter_handle;
+void (*touch_event_filter)(struct input_event*);
+void (*SetFilterPara)();
+int (*SetFilterStatus)();
+/// @}
+
 using android::base::StringPrintf;
 
 namespace android {
-
+/// M: Switch touch filter by command @{
+/* Always Enable touchfilter */
+static bool gTouchFilterEnable = true;//default ture;
+static bool gTouchFilterDefault = false; //default false
+/// @}
 static constexpr bool DEBUG = false;
 
 static const char *WAKE_LOCK_ID = "KeyEvents";
@@ -297,6 +313,24 @@ EventHub::EventHub(void) :
     getLinuxRelease(&major, &minor);
     // EPOLLWAKEUP was introduced in kernel 3.5
     mUsingEpollWakeup = major > 3 || (major == 3 && minor >= 5);
+    /// M: touch filter func @{
+    touch_filter_handle = dlopen(LIB_TOUCH_FILTER, RTLD_NOW);
+    if (touch_filter_handle != nullptr) {
+        touch_event_filter = (void(*)(struct input_event*))dlsym(touch_filter_handle,
+                                                          "touch_driver_event_filter");
+        if (touch_event_filter == nullptr)
+            ALOGE("touch_driver_event_filter init failed");
+
+        SetFilterPara = (void(*)())dlsym(touch_filter_handle, "setFilterPara");
+        if (SetFilterPara == nullptr)
+            ALOGE("setFilterPara init failed");
+
+        SetFilterStatus = (int(*)())dlsym(touch_filter_handle, "touchFilterStatus");
+        if (SetFilterStatus == nullptr)
+            ALOGE("SetFilterStatus init failed");
+    } else
+      ALOGE("can not find lib: %s", LIB_TOUCH_FILTER);
+    /// @}
 }
 
 EventHub::~EventHub(void) {
@@ -313,6 +347,8 @@ EventHub::~EventHub(void) {
     ::close(mWakeReadPipeFd);
     ::close(mWakeWritePipeFd);
 
+    if (touch_filter_handle)
+        dlclose(touch_filter_handle);
     release_wake_lock(WAKE_LOCK_ID);
 }
 
@@ -968,6 +1004,18 @@ size_t EventHub::getEvents(int timeoutMillis, RawEvent* buffer, size_t bufferSiz
                         event->deviceId = deviceId;
                         event->type = iev.type;
                         event->code = iev.code;
+                        /// M: touch filter call @{//add event to touchfilter for more performance
+                        if(gTouchFilterEnable) {
+                            if(gTouchFilterDefault) {
+                                if (SetFilterPara != nullptr)
+                                    (*SetFilterPara)();
+                            }
+                            gTouchFilterDefault = false;
+
+                            if (touch_event_filter != nullptr)
+                                (*touch_event_filter)(&iev);
+                        }
+                        /// @}
                         event->value = iev.value;
                         event += 1;
                         capacity -= 1;
@@ -1917,6 +1965,11 @@ void EventHub::dump(std::string& dump) {
 
     { // acquire lock
         AutoMutex _l(mLock);
+
+        /// M: touch filter header @{
+        if (SetFilterStatus != nullptr)
+            gTouchFilterEnable = (*SetFilterStatus)();
+        /// @}
 
         dump += StringPrintf(INDENT "BuiltInKeyboardId: %d\n", mBuiltInKeyboardId);
 

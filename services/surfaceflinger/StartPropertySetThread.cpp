@@ -16,6 +16,9 @@
 
 #include <cutils/properties.h>
 #include "StartPropertySetThread.h"
+#ifdef MTK_BOOT_PROF
+#include "SurfaceFlinger.h"
+#endif
 
 namespace android {
 
@@ -34,6 +37,9 @@ bool StartPropertySetThread::threadLoop() {
     // Start BootAnimation if not started
     property_set("ctl.start", "bootanim");
     // Exit immediately
+#ifdef MTK_BOOT_PROF
+    SurfaceFlinger::bootProf(1);
+#endif
     return false;
 }
 

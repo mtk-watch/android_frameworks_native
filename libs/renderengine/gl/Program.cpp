@@ -74,6 +74,9 @@ Program::Program(const ProgramCache::Key& /*needs*/, const char* vertex, const c
         glUseProgram(programId);
         glUniformMatrix4fv(mProjectionMatrixLoc, 1, GL_FALSE, mat4().asArray());
         glEnableVertexAttribArray(0);
+#ifdef MTK_DISP_COLOR_TRANSFORM_IS_NON_LINEAR
+        mDispColorMatrixLoc = glGetUniformLocation(programId, "dispColorMatrix");
+#endif
     }
 }
 
@@ -146,6 +149,11 @@ void Program::setUniforms(const Description& desc) {
     }
     // these uniforms are always present
     glUniformMatrix4fv(mProjectionMatrixLoc, 1, GL_FALSE, desc.projectionMatrix.asArray());
+#ifdef MTK_DISP_COLOR_TRANSFORM_IS_NON_LINEAR
+    if (mDispColorMatrixLoc >= 0) {
+        glUniformMatrix4fv(mDispColorMatrixLoc, 1, GL_FALSE, desc.dispColorMatrix.asArray());
+    }
+#endif
 }
 
 } // namespace gl

@@ -60,6 +60,10 @@ struct Buffer {
 
     // HDR color-space setting for Y410.
     bool isY410BT2020 = false;
+
+#ifdef MTK_HDR_DISPLAY_SUPPORT
+    bool isHdrHwSource = false;;
+#endif
 };
 
 // Metadata describing the layer geometry.
@@ -116,6 +120,9 @@ struct LayerSettings {
 
     // True if blending will be forced to be disabled.
     bool disableBlending = false;
+#ifdef MTK_IN_DISPLAY_FINGERPRINT
+    bool enableDither = false;
+#endif
 };
 
 } // namespace renderengine

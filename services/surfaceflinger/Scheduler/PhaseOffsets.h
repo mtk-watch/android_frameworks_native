@@ -20,6 +20,9 @@
 
 #include "RefreshRateConfigs.h"
 #include "VSyncModulator.h"
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+#include <mutex>
+#endif
 
 namespace android {
 namespace scheduler {
@@ -48,6 +51,11 @@ public:
     virtual void setRefreshRateType(RefreshRateConfigs::RefreshRateType refreshRateType) = 0;
     virtual nsecs_t getOffsetThresholdForNextVsync() const = 0;
     virtual void dump(std::string& result) const = 0;
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+public:
+    virtual void setLatePhaseOffsets(nsecs_t defaultApLate, nsecs_t defaultSfLate,
+                                     nsecs_t highApLate, nsecs_t highSfLate) = 0;
+#endif
 };
 
 namespace impl {
@@ -88,6 +96,12 @@ private:
     Offsets mDefaultRefreshRateOffsets;
     Offsets mHighRefreshRateOffsets;
     nsecs_t mOffsetThresholdForNextVsync;
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+    mutable std::mutex mOffsetLock;
+public:
+    void setLatePhaseOffsets(nsecs_t defaultApLate, nsecs_t defaultSfLate,
+                             nsecs_t highApLate, nsecs_t highSfLate);
+#endif
 };
 } // namespace impl
 

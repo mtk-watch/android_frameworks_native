@@ -28,6 +28,7 @@ EGL_ENTRY(__eglMustCastToProperFunctionPointerType, eglGetProcAddress, const cha
 /* EGL 1.1 */
 
 EGL_ENTRY(EGLBoolean, eglSurfaceAttrib, EGLDisplay, EGLSurface, EGLint, EGLint)
+EGL_ENTRY(EGLBoolean, eglSurfaceAttribMTK, EGLDisplay, EGLSurface, EGLint, EGLint, EGLint*, EGLint)
 EGL_ENTRY(EGLBoolean, eglBindTexImage, EGLDisplay, EGLSurface, EGLint)
 EGL_ENTRY(EGLBoolean, eglReleaseTexImage, EGLDisplay, EGLSurface, EGLint)
 EGL_ENTRY(EGLBoolean, eglSwapInterval, EGLDisplay, EGLint)

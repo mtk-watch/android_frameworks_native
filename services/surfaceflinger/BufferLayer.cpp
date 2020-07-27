@@ -53,6 +53,10 @@
 #include "LayerRejecter.h"
 #include "TimeStats/TimeStats.h"
 
+#ifdef MTK_IN_DISPLAY_FINGERPRINT
+#define DITHER_LAYER_NAME "OnScreenFingerprintDimLayer"
+#endif
+
 namespace android {
 
 BufferLayer::BufferLayer(const LayerCreationArgs& args)
@@ -66,6 +70,18 @@ BufferLayer::BufferLayer(const LayerCreationArgs& args)
 
     mPotentialCursor = args.flags & ISurfaceComposerClient::eCursorWindow;
     mProtectedByApp = args.flags & ISurfaceComposerClient::eProtectedByApp;
+
+#ifdef MTK_IN_DISPLAY_FINGERPRINT
+    mDither = false;
+    std::vector<std::string> dimLayerArr = {DITHER_LAYER_NAME};
+
+    for(size_t i = 0; i < dimLayerArr.size(); ++i) {
+        if (getName().contains(dimLayerArr[i].c_str())) {
+            mDither = true;
+            break;
+        }
+    }
+#endif
 }
 
 BufferLayer::~BufferLayer() {
@@ -174,6 +190,9 @@ bool BufferLayer::prepareClientLayer(const RenderArea& renderArea, const Region&
         layer.source.buffer.textureName = mTextureName;
         layer.source.buffer.usePremultipliedAlpha = getPremultipledAlpha();
         layer.source.buffer.isY410BT2020 = isHdrY410();
+#ifdef MTK_HDR_DISPLAY_SUPPORT
+        layer.source.buffer.isHdrHwSource = isHdrHwSource();
+#endif
         // TODO: we could be more subtle with isFixedSize()
         const bool useFiltering = needsFiltering(renderArea.getDisplayDevice()) ||
                 renderArea.needsFiltering() || isFixedSize();
@@ -236,6 +255,9 @@ bool BufferLayer::prepareClientLayer(const RenderArea& renderArea, const Region&
 
         layer.source.buffer.useTextureFiltering = useFiltering;
         layer.source.buffer.textureTransform = mat4(static_cast<const float*>(textureMatrix)) * tr;
+#ifdef MTK_IN_DISPLAY_FINGERPRINT
+        layer.enableDither = mDither;
+#endif
     } else {
         // If layer is blacked out, force alpha to 1 so that we draw a black color
         // layer.
@@ -583,7 +605,11 @@ bool BufferLayer::latchUnsignaledBuffers() {
     std::lock_guard<std::mutex> lock(mutex);
     if (!propertyLoaded) {
         char value[PROPERTY_VALUE_MAX] = {};
+#ifdef MTK_VENDOR_LATCH_UNSIGNALED
+        property_get("vendor.debug.sf.latch_unsignaled", value, "0");
+#else
         property_get("debug.sf.latch_unsignaled", value, "0");
+#endif
         latch = atoi(value);
         propertyLoaded = true;
     }

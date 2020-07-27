@@ -126,7 +126,9 @@ LayerProtoParser::Layer LayerProtoParser::generateLayer(const LayerProto& layerP
         outData.resize(dataStr.size());
         memcpy(outData.data(), dataStr.data(), dataStr.size());
     }
-
+#ifdef MTK_SF_DEBUG_SUPPORT
+    layer.bqcoreInfo = layerProto.bqcoreinfo();
+#endif
     return layer;
 }
 
@@ -322,6 +324,10 @@ std::string LayerProtoParser::Layer::to_string() const {
         result.append(metadata.itemToString(entry.first, ":"));
     }
     result.append("}");
+#ifdef MTK_SF_DEBUG_SUPPORT
+    result.append("\n");
+    StringAppendF(&result, "%s", bqcoreInfo.c_str());
+#endif
 
     return result;
 }

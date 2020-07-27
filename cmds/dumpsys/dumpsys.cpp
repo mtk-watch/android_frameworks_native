@@ -120,7 +120,7 @@ int Dumpsys::main(int argc, char* const argv[]) {
     bool showListOnly = false;
     bool skipServices = false;
     bool asProto = false;
-    int timeoutArgMs = 10000;
+    int timeoutArgMs = 20000;
     int priorityFlags = IServiceManager::DUMP_FLAG_PRIORITY_ALL;
     static struct option longOptions[] = {{"priority", required_argument, 0, 0},
                                           {"proto", no_argument, 0, 0},

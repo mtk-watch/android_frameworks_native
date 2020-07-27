@@ -148,6 +148,10 @@ Error Device::createVirtualDisplay(uint32_t width, uint32_t height,
     *outDisplay = display.get();
     mDisplays.emplace(displayId, std::move(display));
     ALOGI("Created virtual display");
+
+#ifdef MTK_AOSP_DISPLAY_BUGFIX
+    mComposer->setClientTargetSlotCount(displayId);
+#endif
     return Error::None;
 }
 

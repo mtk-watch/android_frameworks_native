@@ -38,6 +38,9 @@ Display::Display(const CompositionEngine& compositionEngine, DisplayCreationArgs
         mIsVirtual(args.isVirtual),
         mId(args.displayId) {
     editState().isSecure = args.isSecure;
+#ifdef MTK_COLOR_TRANSFORM_NO_SWITCH_BETWEEN_GPU_AND_HWC
+    mStatusOfColorTransform = NO_ERROR;
+#endif
 }
 
 Display::~Display() = default;
@@ -69,8 +72,14 @@ void Display::setColorTransform(const mat4& transform) {
 
     auto& hwc = getCompositionEngine().getHwComposer();
     status_t result = hwc.setColorTransform(*mId, transform);
+#ifdef MTK_COLOR_TRANSFORM_NO_SWITCH_BETWEEN_GPU_AND_HWC
+    mStatusOfColorTransform = result;
+    ALOGE_IF(result != NO_ERROR && result != BAD_VALUE, "Failed to set color transform on display \"%s\": %d",
+             mId ? to_string(*mId).c_str() : "", result);
+#else
     ALOGE_IF(result != NO_ERROR, "Failed to set color transform on display \"%s\": %d",
              mId ? to_string(*mId).c_str() : "", result);
+#endif
 }
 
 void Display::setColorMode(ui::ColorMode mode, ui::Dataspace dataspace,
@@ -118,5 +127,11 @@ void Display::createRenderSurface(RenderSurfaceCreationArgs&& args) {
     setRenderSurface(compositionengine::impl::createRenderSurface(getCompositionEngine(), *this,
                                                                   std::move(args)));
 }
+
+#ifdef MTK_COLOR_TRANSFORM_NO_SWITCH_BETWEEN_GPU_AND_HWC
+status_t Display::getStatusOfColorTransform() const {
+    return mStatusOfColorTransform;
+}
+#endif
 
 } // namespace android::compositionengine::impl

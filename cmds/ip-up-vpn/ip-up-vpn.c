@@ -79,7 +79,7 @@ int main(int argc, char **argv)
         fprintf(state, "0.0.0.0/0\n");
         fprintf(state, "%s %s\n", env("DNS1"), env("DNS2"));
         fprintf(state, "\n");
-        fprintf(state, "\n");
+        fprintf(state, "%s\n", env("PPTP_VPNSERV"));
     } else if (argc == 2) {
         /* Invoked by racoon. */
         const char *interface = env("INTERFACE");

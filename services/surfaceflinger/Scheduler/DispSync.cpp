@@ -35,10 +35,28 @@
 #include "DispSync.h"
 #include "EventLog/EventLog.h"
 #include "SurfaceFlinger.h"
+#ifdef MTK_VSYNC_HINT_SUPPORT
+#include <dlfcn.h>
+#include "vsync_hint/VsyncHintApi.h"
+#endif
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+#include "vsync_enhance/DispSyncEnhancementApi.h"
+#endif
 
 using android::base::StringAppendF;
 using std::max;
 using std::min;
+
+#ifdef MTK_SF_DEBUG_SUPPORT
+#define DS_ATRACE_NAME(name) android::ScopedTrace ___tracer(ATRACE_TAG, name)
+
+#define DS_ATRACE_BUFFER(x, ...)                                                \
+    if (ATRACE_ENABLED()) {                                                     \
+        char ___traceBuf[256];                                                  \
+        snprintf(___traceBuf, sizeof(___traceBuf), x, ##__VA_ARGS__);           \
+        android::ScopedTrace ___bufTracer(ATRACE_TAG, ___traceBuf);             \
+    }
+#endif
 
 namespace android {
 
@@ -61,6 +79,7 @@ static const nsecs_t kErrorThreshold = 160000000000; // 400 usec squared
 #define LOG_TAG "DispSyncThread"
 class DispSyncThread : public Thread {
 public:
+#ifndef MTK_VSYNC_MODIFICATION_SUPPORT
     DispSyncThread(const char* name, bool showTraceDetailedInfo)
           : mName(name),
             mStop(false),
@@ -73,6 +92,31 @@ public:
             mTraceDetailedInfo(showTraceDetailedInfo) {}
 
     virtual ~DispSyncThread() {}
+#else
+    DispSyncThread(const char* name, bool showTraceDetailedInfo)
+          : mName(name),
+            mStop(false),
+            mModelLocked(false),
+            mPeriod(0),
+            mPhase(0),
+            mReferenceTime(0),
+            mWakeupLatency(0),
+            mFrameNumber(0),
+            mTraceDetailedInfo(showTraceDetailedInfo) {
+#ifdef MTK_VSYNC_HINT_SUPPORT
+        initVsyncHint();
+#endif
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+        initVsyncEnhance();
+#endif
+    }
+
+    virtual ~DispSyncThread() {
+#ifdef MTK_VSYNC_HINT_SUPPORT
+        deinitVsyncHint();
+#endif
+    }
+#endif
 
     void updateModel(nsecs_t period, nsecs_t phase, nsecs_t referenceTime) {
         if (mTraceDetailedInfo) ATRACE_CALL();
@@ -127,6 +171,9 @@ public:
         nsecs_t now = systemTime(SYSTEM_TIME_MONOTONIC);
 
         while (true) {
+#ifdef MTK_SF_DEBUG_SUPPORT
+            DS_ATRACE_NAME("send_sw_vsync");
+#endif
             std::vector<CallbackInvocation> callbackInvocations;
 
             nsecs_t targetTime = 0;
@@ -158,6 +205,9 @@ public:
                 bool isWakeup = false;
 
                 if (now < targetTime) {
+#ifdef MTK_SF_DEBUG_SUPPORT
+                    DS_ATRACE_BUFFER("sleep:%" PRId64, targetTime - now);
+#endif
                     if (mTraceDetailedInfo) ATRACE_NAME("DispSync waiting");
 
                     if (targetTime == INT64_MAX) {
@@ -184,10 +234,15 @@ public:
                 if (isWakeup) {
                     mWakeupLatency = ((mWakeupLatency * 63) + (now - targetTime)) / 64;
                     mWakeupLatency = min(mWakeupLatency, kMaxWakeupLatency);
+#ifdef MTK_SF_DEBUG_SUPPORT
+                    ATRACE_INT64("DispSync:WakeupLat", now - targetTime);
+                    ATRACE_INT64("DispSync:AvgWakeupLat", mWakeupLatency);
+#else
                     if (mTraceDetailedInfo) {
                         ATRACE_INT64("DispSync:WakeupLat", now - targetTime);
                         ATRACE_INT64("DispSync:AvgWakeupLat", mWakeupLatency);
                     }
+#endif
                 }
 
                 callbackInvocations = gatherCallbackInvocationsLocked(now);
@@ -216,6 +271,9 @@ public:
         listener.mName = name;
         listener.mPhase = phase;
         listener.mCallback = callback;
+#ifdef MTK_VSYNC_HINT_SUPPORT
+        fillListenerType(&listener);
+#endif
 
         // We want to allow the firstmost future event to fire without
         // allowing any past events to fire. To do this extrapolate from
@@ -305,11 +363,17 @@ private:
         nsecs_t mLastCallbackTime;
         DispSync::Callback* mCallback;
         bool mHasFired = false;
+#ifdef MTK_VSYNC_HINT_SUPPORT
+        int mVsyncType;
+#endif
     };
 
     struct CallbackInvocation {
         DispSync::Callback* mCallback;
         nsecs_t mEventTime;
+#ifdef MTK_VSYNC_HINT_SUPPORT
+        int mVsyncType;
+#endif
     };
 
     nsecs_t computeNextEventTimeLocked(nsecs_t now) {
@@ -332,7 +396,11 @@ private:
     // falling into double-rate vsyncs.
     bool isCloseToPeriod(nsecs_t duration) {
         // Ratio of 3/5 is arbitrary, but it must be greater than 1/2.
-        return duration < (3 * mPeriod) / 5;
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+       return duration < ((mPeriod / 2) - mPhase);
+#else
+       return duration < (3 * mPeriod / 5);
+#endif
     }
 
     std::vector<CallbackInvocation> gatherCallbackInvocationsLocked(nsecs_t now) {
@@ -361,6 +429,9 @@ private:
                 CallbackInvocation ci;
                 ci.mCallback = eventListener.mCallback;
                 ci.mEventTime = t;
+#ifdef MTK_VSYNC_HINT_SUPPORT
+                fillCallbackType(&ci, eventListener);
+#endif
                 ALOGV("[%s] [%s] Preparing to fire, latency: %" PRId64, mName, eventListener.mName,
                       t - eventListener.mLastEventTime);
                 callbackInvocations.push_back(ci);
@@ -387,7 +458,16 @@ private:
 
         baseTime -= mReferenceTime;
         ALOGV("[%s] Relative baseTime = %" PRId64, mName, ns2us(baseTime));
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+        nsecs_t phase = 0;
+        if (mVSyncMode == VSYNC_MODE_CALIBRATED_SW_VSYNC) {
+            phase = mPhase + listener.mPhase;
+        } else {
+            phase = mPhase;
+        }
+#else
         nsecs_t phase = mPhase + listener.mPhase;
+#endif
         ALOGV("[%s] Phase = %" PRId64, mName, ns2us(phase));
         baseTime -= phase;
         ALOGV("[%s] baseTime - phase = %" PRId64, mName, ns2us(baseTime));
@@ -428,6 +508,9 @@ private:
         if (mTraceDetailedInfo) ATRACE_CALL();
         for (size_t i = 0; i < callbacks.size(); i++) {
             callbacks[i].mCallback->onDispSyncEvent(callbacks[i].mEventTime);
+#ifdef MTK_VSYNC_HINT_SUPPORT
+            fireVsyncHint(callbacks[i]);
+#endif
         }
     }
 
@@ -450,6 +533,37 @@ private:
 
     // Flag to turn on logging in systrace.
     const bool mTraceDetailedInfo;
+#ifdef MTK_VSYNC_HINT_SUPPORT
+    void* mVsyncHintHandle;
+    VsyncHintApi* mVsyncHint;
+
+    // initial VsyncHint object
+    void initVsyncHint();
+
+    // deinit VsyncHint object
+    void deinitVsyncHint();
+
+    // base on the listener name to fill listener type
+    void fillListenerType(EventListener* listener);
+
+    // copy the listener type to CallbackInvocation
+    void fillCallbackType(CallbackInvocation* callback, const EventListener& listener);
+
+    // when DispSyncThread fire callback, also send the VSync event to other module
+    void fireVsyncHint(const CallbackInvocation& ci);
+#endif
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+public:
+    // used to change the period and mode of VSync
+    status_t setVSyncMode(int32_t mode, int32_t fps, nsecs_t period, nsecs_t phase, nsecs_t referenceTime);
+
+private:
+    // initial VsyncEnhance parameter
+    void initVsyncEnhance();
+
+    int32_t mFps;
+    int32_t mVSyncMode;
+#endif
 };
 
 #undef LOG_TAG
@@ -500,6 +614,9 @@ void DispSync::init(bool hasSyncFramework, int64_t dispSyncPresentTimeOffset) {
         mZeroPhaseTracer = std::make_unique<ZeroPhaseTracer>();
         addEventListener("ZeroPhaseTracer", 0, mZeroPhaseTracer.get(), 0);
     }
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+    initDispVsyncEnhancement();
+#endif
 }
 
 void DispSync::reset() {
@@ -528,6 +645,12 @@ void DispSync::resetLocked() {
 
 bool DispSync::addPresentFence(const std::shared_ptr<FenceTime>& fenceTime) {
     Mutex::Autolock lock(mMutex);
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+    bool res = false;
+    if (addPresentFenceEnhancementLocked(&res)) {
+        return res;
+    }
+#endif
 
     if (mIgnorePresentFences) {
         return true;
@@ -554,6 +677,12 @@ bool DispSync::addResyncSample(nsecs_t timestamp, bool* periodChanged) {
     Mutex::Autolock lock(mMutex);
 
     ALOGV("[%s] addResyncSample(%" PRId64 ")", mName, ns2us(timestamp));
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+    bool res = false;
+    if (addResyncSampleEnhancementLocked(&res, timestamp)) {
+        return res;
+    }
+#endif
 
     *periodChanged = false;
     const size_t idx = (mFirstResyncSample + mNumResyncSamples) % MAX_RESYNC_SAMPLES;
@@ -837,6 +966,9 @@ void DispSync::dump(std::string& result) const {
     }
 
     StringAppendF(&result, "current monotonic time: %" PRId64 "\n", now);
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+    dumpEnhanceInfo(result);
+#endif
 }
 
 nsecs_t DispSync::expectedPresentTime() {
@@ -850,6 +982,85 @@ nsecs_t DispSync::expectedPresentTime() {
     // Ask DispSync when the next refresh will be (CLOCK_MONOTONIC).
     return computeNextRefresh(hwcLatency);
 }
+
+#ifdef MTK_VSYNC_HINT_SUPPORT
+    void DispSyncThread::initVsyncHint() {
+        typedef VsyncHintApi* (*createVsyncHintPrototype)();
+        mVsyncHint = NULL;
+        mVsyncHintHandle = dlopen("libvsync_hint.so", RTLD_LAZY);
+        if (mVsyncHintHandle) {
+            createVsyncHintPrototype createPtr = reinterpret_cast<createVsyncHintPrototype>(dlsym(mVsyncHintHandle, "createVsyncHint"));
+            if (createPtr) {
+                mVsyncHint = createPtr();
+            } else {
+                ALOGW("Failed to get function: createVsyncHint");
+            }
+        } else {
+            ALOGW("Failed to load libvsync_hint.so");
+        }
+    }
+
+    void DispSyncThread::deinitVsyncHint() {
+        if (mVsyncHint) {
+            delete mVsyncHint;
+        }
+        if (mVsyncHintHandle) {
+            dlclose(mVsyncHintHandle);
+        }
+    }
+
+    void DispSyncThread::fillListenerType(EventListener* listener) {
+        if (mVsyncHint) {
+            if (!strcmp(listener->mName, "sf")) {
+                listener->mVsyncType = VsyncHintApi::VSYNC_TYPE_SF;
+            } else if (!strcmp(listener->mName, "app")) {
+                listener->mVsyncType = VsyncHintApi::VSYNC_TYPE_APP;
+            } else {
+                listener->mVsyncType = VsyncHintApi::VSYNC_TYPE_UNKNOWN;
+            }
+        }
+    }
+
+    void DispSyncThread::fillCallbackType(CallbackInvocation* callback, const EventListener& listener) {
+        if (mVsyncHint) {
+            callback->mVsyncType = listener.mVsyncType;
+        }
+    }
+
+    void DispSyncThread::fireVsyncHint(const CallbackInvocation& ci) {
+        if (mVsyncHint) {
+            mVsyncHint->notifyVsync(ci.mVsyncType, mPeriod);
+        }
+    }
+#endif
+
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+status_t DispSyncThread::setVSyncMode(int32_t mode, int32_t fps, nsecs_t period, nsecs_t phase,
+                      nsecs_t referenceTime) {
+    ALOGI("setVSync: mode[%d->%d] fps[%d->%d]", mVSyncMode, mode, mFps, fps);
+    Mutex::Autolock lock(mMutex);
+    status_t res = NO_ERROR;
+    mFps = fps;
+    mVSyncMode = mode;
+    mPeriod = period;
+    mPhase = phase;
+    mReferenceTime = referenceTime;
+    mCond.signal();
+    return res;
+}
+
+void DispSyncThread::initVsyncEnhance() {
+    mVSyncMode = VSYNC_MODE_CALIBRATED_SW_VSYNC;
+    mFps = DS_DEFAULT_FPS;
+}
+
+void DispSync::getDispSyncEnhancementFunctionList(struct DispSyncEnhancementFunctionList* list) {
+    list->setVSyncMode = std::bind(&DispSyncThread::setVSyncMode, mThread.get(),
+                                      std::placeholders::_1, std::placeholders::_2,
+                                      std::placeholders::_3, std::placeholders::_4,
+                                      std::placeholders::_5);
+}
+#endif
 
 } // namespace impl
 

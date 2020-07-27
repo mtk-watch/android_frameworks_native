@@ -100,6 +100,11 @@ private:
 
     /* location of surface crop origin uniform, for rounded corner clipping */
     GLint mCropCenterLoc;
+
+#ifdef MTK_DISP_COLOR_TRANSFORM_IS_NON_LINEAR
+    /* location of the color matrix uniform */
+    GLint mDispColorMatrixLoc;
+#endif
 };
 
 } // namespace gl

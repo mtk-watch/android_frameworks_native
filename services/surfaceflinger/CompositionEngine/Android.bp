@@ -3,6 +3,7 @@ cc_defaults {
     defaults: ["surfaceflinger_defaults"],
     cflags: [
         "-DLOG_TAG=\"CompositionEngine\"",
+        "-DMTK_COLOR_TRANSFORM_NO_SWITCH_BETWEEN_GPU_AND_HWC",
     ],
     shared_libs: [
         "android.frameworks.vr.composer@1.0",

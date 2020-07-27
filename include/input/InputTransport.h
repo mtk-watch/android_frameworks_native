@@ -208,6 +208,10 @@ public:
     sp<IBinder> getToken() const;
     void setToken(const sp<IBinder>& token);
 
+    /// M: Switch log by command@{
+    static void switchInputLog(bool enable);
+    /// @}
+
 private:
     void setFd(int fd);
 
@@ -481,6 +485,9 @@ private:
         }
     };
     Vector<TouchState> mTouchStates;
+    /// M: type of mArcHandle is MTKArcDispatcher, we choose void* because
+    ///    it's internal type. External modules do not need to know it.
+    void *mArcHandle;
 
     // Chain of batched sequence numbers.  When multiple input messages are combined into
     // a batch, we append a record here that associates the last sequence number in the

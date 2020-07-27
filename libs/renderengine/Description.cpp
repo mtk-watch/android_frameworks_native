@@ -49,7 +49,11 @@ bool Description::hasOutputTransformMatrix() const {
 
 bool Description::hasColorMatrix() const {
     const mat4 identity;
+#ifdef MTK_DISP_COLOR_TRANSFORM_IS_NON_LINEAR
+    return colorMatrix != identity || dispColorMatrix != identity;
+#else
     return colorMatrix != identity;
+#endif
 }
 
 } // namespace renderengine

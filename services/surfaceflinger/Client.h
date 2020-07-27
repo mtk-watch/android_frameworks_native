@@ -74,6 +74,12 @@ private:
 
     // thread-safe
     mutable Mutex mLock;
+
+#ifdef MTK_SF_DEBUG_SUPPORT
+    // client process info
+    int32_t mClientPid;
+    String8 mClientProcName;
+#endif
 };
 
 // ---------------------------------------------------------------------------

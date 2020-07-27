@@ -1286,6 +1286,10 @@ private:
     void traceWaitQueueLength(const sp<Connection>& connection);
 
     sp<InputReporterInterface> mReporter;
+
+    /// M: Switch log by command @{
+    void switchInputLog();
+    /// @}
 };
 
 /* Enqueues and dispatches input events, endlessly. */

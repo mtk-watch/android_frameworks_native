@@ -53,6 +53,11 @@ public:
 
     // Returns current offsets in human friendly format.
     void dump(std::string& /*result*/) const override {}
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+public:
+    void setLatePhaseOffsets(nsecs_t /*defaultApLate*/, nsecs_t /*defaultSfLate*/,
+                                     nsecs_t /*highApLate*/, nsecs_t /*highSfLate*/) {}
+#endif
 };
 
 } // namespace scheduler

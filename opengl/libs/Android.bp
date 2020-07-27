@@ -56,6 +56,7 @@ cc_defaults {
     cflags: [
         "-DGL_GLEXT_PROTOTYPES",
         "-DEGL_EGLEXT_PROTOTYPES",
+        "-DMTK_GAMEPQ",
         "-fvisibility=hidden",
         "-Wall",
         "-Werror",
@@ -157,6 +158,8 @@ cc_library_shared {
         "libnativebridge_lazy",
         "libnativeloader_lazy",
         "libutils",
+        // MTK AOSP enhancement required
+        "libgralloc_extra_sys",
     ],
     static_libs: [
         "libEGL_getProcAddress",

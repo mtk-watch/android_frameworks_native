@@ -34,6 +34,41 @@
 #include <mutex>
 #include <condition_variable>
 
+#ifdef MTK_LIBGUI_DEBUG_SUPPORT
+// class BufferQueueDebug cannot include by forward declaration.
+// Because of the performance issue, BufferQueueCore holds a BufferQueueDebug
+// object directly.
+#include <gui/mediatek/BufferQueueDebug.h>
+#ifdef MTK_COMPILE_BUFFERQUEUECORE
+#define BQ_LOGV(x, ...) ALOGV("[%s](this:%p,id:%d,api:%d,p:%d,c:%d) " x, mConsumerName.string(), this, debugger.mId, debugger.mConnectedApi, debugger.mProducerPid, debugger.mConsumerPid, ##__VA_ARGS__)
+#define BQ_LOGD(x, ...) ALOGD("[%s](this:%p,id:%d,api:%d,p:%d,c:%d) " x, mConsumerName.string(), this, debugger.mId, debugger.mConnectedApi, debugger.mProducerPid, debugger.mConsumerPid, ##__VA_ARGS__)
+#define BQ_LOGI(x, ...) ALOGI("[%s](this:%p,id:%d,api:%d,p:%d,c:%d) " x, mConsumerName.string(), this, debugger.mId, debugger.mConnectedApi, debugger.mProducerPid, debugger.mConsumerPid, ##__VA_ARGS__)
+#define BQ_LOGW(x, ...) ALOGW("[%s](this:%p,id:%d,api:%d,p:%d,c:%d) " x, mConsumerName.string(), this, debugger.mId, debugger.mConnectedApi, debugger.mProducerPid, debugger.mConsumerPid, ##__VA_ARGS__)
+#define BQ_LOGE(x, ...) ALOGE("[%s](this:%p,id:%d,api:%d,p:%d,c:%d) " x, mConsumerName.string(), this, debugger.mId, debugger.mConnectedApi, debugger.mProducerPid, debugger.mConsumerPid, ##__VA_ARGS__)
+#else // MTK_COMPILE_BUFFERQUEUECORE
+#define BQ_LOGV(x, ...) ALOGV("[%s](this:%p,id:%d,api:%d,p:%d,c:%d) " x, mConsumerName.string(), mCore.get(), mCore->debugger.mId, mCore->debugger.mConnectedApi, mCore->debugger.mProducerPid, mCore->debugger.mConsumerPid, ##__VA_ARGS__)
+#define BQ_LOGD(x, ...) ALOGD("[%s](this:%p,id:%d,api:%d,p:%d,c:%d) " x, mConsumerName.string(), mCore.get(), mCore->debugger.mId, mCore->debugger.mConnectedApi, mCore->debugger.mProducerPid, mCore->debugger.mConsumerPid, ##__VA_ARGS__)
+#define BQ_LOGI(x, ...) ALOGI("[%s](this:%p,id:%d,api:%d,p:%d,c:%d) " x, mConsumerName.string(), mCore.get(), mCore->debugger.mId, mCore->debugger.mConnectedApi, mCore->debugger.mProducerPid, mCore->debugger.mConsumerPid, ##__VA_ARGS__)
+#define BQ_LOGW(x, ...) ALOGW("[%s](this:%p,id:%d,api:%d,p:%d,c:%d) " x, mConsumerName.string(), mCore.get(), mCore->debugger.mId, mCore->debugger.mConnectedApi, mCore->debugger.mProducerPid, mCore->debugger.mConsumerPid, ##__VA_ARGS__)
+#define BQ_LOGE(x, ...) ALOGE("[%s](this:%p,id:%d,api:%d,p:%d,c:%d) " x, mConsumerName.string(), mCore.get(), mCore->debugger.mId, mCore->debugger.mConnectedApi, mCore->debugger.mProducerPid, mCore->debugger.mConsumerPid, ##__VA_ARGS__)
+#endif // MTK_COMPILE_BUFFERQUEUECORE
+#define ATRACE_BUFFER_INDEX(index)                                                         \
+    do {                                                                                   \
+        if (ATRACE_ENABLED()) {                                                            \
+            char ___traceBuf[1024];                                                        \
+            if (index >= 0 && index < BufferQueueDefs::NUM_BUFFER_SLOTS &&                 \
+                    mCore->mSlots[index].mGraphicBuffer != NULL) {                         \
+                snprintf(___traceBuf, 1024, "p:%d %s: %d (h:%p)", mCore->mConnectedPid,    \
+                    mConsumerName.string(), (index),                                       \
+                    (mCore->mSlots[index].mGraphicBuffer->handle));                        \
+            } else {                                                                       \
+                snprintf(___traceBuf, 1024, "p:%d %s: %d", mCore->mConnectedPid,           \
+                    mConsumerName.string(), (index));                                      \
+            }                                                                              \
+            android::ScopedTrace ___bufTracer(ATRACE_TAG, ___traceBuf);                    \
+        }                                                                                  \
+    }while (false)
+#else // MTK_LIBGUI_DEBUG_SUPPORT
 #define BQ_LOGV(x, ...) ALOGV("[%s] " x, mConsumerName.string(), ##__VA_ARGS__)
 #define BQ_LOGD(x, ...) ALOGD("[%s] " x, mConsumerName.string(), ##__VA_ARGS__)
 #define BQ_LOGI(x, ...) ALOGI("[%s] " x, mConsumerName.string(), ##__VA_ARGS__)
@@ -48,6 +83,7 @@
             android::ScopedTrace ___bufTracer(ATRACE_TAG, ___traceBuf);                    \
         }                                                                                  \
     } while (false)
+#endif // MTK_LIBGUI_DEBUG_SUPPORT
 
 namespace android {
 
@@ -58,6 +94,10 @@ class BufferQueueCore : public virtual RefBase {
 
     friend class BufferQueueProducer;
     friend class BufferQueueConsumer;
+
+#ifdef MTK_LIBGUI_DEBUG_SUPPORT
+    friend struct BufferQueueDebug;
+#endif
 
 public:
     // Used as a placeholder slot number when the value isn't pointing to an
@@ -348,6 +388,10 @@ private:
 
     const uint64_t mUniqueId;
 
+#ifdef MTK_LIBGUI_DEBUG_SUPPORT
+public:
+    BufferQueueDebug debugger;
+#endif
 }; // class BufferQueueCore
 
 } // namespace android

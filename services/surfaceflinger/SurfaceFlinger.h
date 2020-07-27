@@ -1167,6 +1167,63 @@ private:
     // The Layer pointer is removed from the set when the destructor is called so there shouldn't
     // be any issues with a raw pointer referencing an invalid object.
     std::unordered_set<Layer*> mOffscreenLayers;
+#ifdef MTK_BOOT_PROF
+public:
+    static void bootProf(int start);
+#endif
+
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+private:
+    // check the transact is MTK private or not
+    status_t checkMtkTransactCodeCredentials(uint32_t code);
+
+    // transact MTK binder request
+    status_t onMtkTransact(uint32_t code, const Parcel& data, Parcel* reply, uint32_t flags);
+
+    // for adjust vsync fps
+    void adjustSwVsyncPeriod(int32_t fps);
+
+    // for adjust vsync offset
+    void adjustSwVsyncOffset(nsecs_t offset);
+
+    // initial the binder callback to change vsync offset
+    void initVsyncEnhancement();
+#endif
+
+#ifdef MTK_SF_DEBUG_SUPPORT
+    // for draw debug pattren on ClientTarget
+    void drawDebugLine(const sp<DisplayDevice>& displayDevice);
+#endif
+
+#ifdef MTK_SF_DEBUG_SUPPORT
+private:
+    // used to avoid race condition between handleMessageRefresh() and dumpAllLocked()
+    mutable Mutex mDumpLock;
+
+    status_t dumpLock(bool& dumpLocked, nsecs_t& start, std::string& result);
+    void dumpUnlock(bool dumpLocked, nsecs_t start);
+    void mtkDump(std::string& result);
+    static status_t getProcessName(int pid, String8& name);
+#endif
+
+#ifdef MTK_AOSP_DISPLAY_BUGFIX
+    // guards acccess to the mInputFlinger if main thread and binder thread
+    // try to access it
+    std::mutex mInputFlingerLock;
+
+    // guards multiple binder thread to enable and disable SurfaceTracing at the same
+    // time.
+    Condition mSurfaceTracingCond;
+    bool mIsDisabingSurfaceTracing;
+#endif
+#ifdef MTK_COLOR_TRANSFORM_NO_SWITCH_BETWEEN_GPU_AND_HWC
+private:
+    bool mIsHWCSupportColorTransform;
+#endif
+#ifdef MTK_VIRTUAL_DISPLAY_SHOW_SURFACE_UPDATES
+private:
+    mutable Mutex mDebugRegionLock;
+#endif
 };
 
 } // namespace android

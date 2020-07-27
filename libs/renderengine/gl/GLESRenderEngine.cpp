@@ -423,6 +423,10 @@ GLESRenderEngine::GLESRenderEngine(uint32_t featureFlags, EGLDisplay display, EG
         mFlushTracer = std::make_unique<FlushTracer>(this);
     }
     mDrawingBuffer = createFramebuffer();
+#ifdef MTK_IN_DISPLAY_FINGERPRINT
+    initDitherTable();
+    initEGLVendor();
+#endif
 }
 
 GLESRenderEngine::~GLESRenderEngine() {
@@ -437,6 +441,10 @@ GLESRenderEngine::~GLESRenderEngine() {
     mImageCache.clear();
     eglMakeCurrent(mEGLDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     eglTerminate(mEGLDisplay);
+#ifdef MTK_IN_DISPLAY_FINGERPRINT
+    glDeleteTextures(1, &mProtectedTexName);
+    glDeleteTextures(1, &mDitherTableTexName);
+#endif
 }
 
 std::unique_ptr<Framebuffer> GLESRenderEngine::createFramebuffer() {
@@ -917,6 +925,11 @@ status_t GLESRenderEngine::drawLayers(const DisplaySettings& display,
         mState.projectionMatrix = projectionMatrix;
         if (!display.clearRegion.isEmpty()) {
             glDisable(GL_BLEND);
+#ifdef MTK_SF_DEBUG_SUPPORT
+        if (CC_UNLIKELY(isEnabledDebugLine()))
+            fillRegionWithColor(display.clearRegion, 1.0, 0.0, 1.0, 1.0);
+        else
+#endif
             fillRegionWithColor(display.clearRegion, 0.0, 0.0, 0.0, 1.0);
         }
 
@@ -932,7 +945,12 @@ status_t GLESRenderEngine::drawLayers(const DisplaySettings& display,
             position[3] = vec2(bounds.right, bounds.top);
 
             setupLayerCropping(layer, mesh);
+#if MTK_DISP_COLOR_TRANSFORM_IS_NON_LINEAR
+            setColorTransform(layer.colorTransform);
+            setDispColorTransform(display.colorTransform);
+#else
             setColorTransform(display.colorTransform * layer.colorTransform);
+#endif
 
             bool usePremultipliedAlpha = true;
             bool disableTexture = true;
@@ -961,7 +979,15 @@ status_t GLESRenderEngine::drawLayers(const DisplaySettings& display,
                 texCoords[1] = vec2(0.0, 1.0);
                 texCoords[2] = vec2(1.0, 1.0);
                 texCoords[3] = vec2(1.0, 0.0);
+#ifdef MTK_IN_DISPLAY_FINGERPRINT
+                if (layer.enableDither) {
+                    setupLayerTexturingByDitherTable(texture);
+                } else {
+                    setupLayerTexturing(texture);
+                }
+#else
                 setupLayerTexturing(texture);
+#endif
             }
 
             const half3 solidColor = layer.source.solidColor;
@@ -973,7 +999,19 @@ status_t GLESRenderEngine::drawLayers(const DisplaySettings& display,
             if (layer.disableBlending) {
                 glDisable(GL_BLEND);
             }
+#ifdef MTK_IN_DISPLAY_FINGERPRINT
+            setupLayerDither(layer.enableDither);
+            setupEGLVendor();
+            if (layer.enableDither) {
+                glDisable(GL_BLEND);
+            }
+#endif
             setSourceDataSpace(layer.sourceDataspace);
+#ifdef MTK_HDR_DISPLAY_SUPPORT
+            if (layer.source.buffer.isHdrHwSource) {
+                setSourceDataSpace(Dataspace::BT709);
+            }
+#endif
 
             // We only want to do a special handling for rounded corners when having rounded corners
             // is the only reason it needs to turn on blending, otherwise, we handle it like the
@@ -992,6 +1030,9 @@ status_t GLESRenderEngine::drawLayers(const DisplaySettings& display,
             }
         }
 
+#ifdef MTK_SF_DEBUG_SUPPORT
+        drawDebugLine();
+#endif
         if (drawFence != nullptr) {
             *drawFence = flush();
         }
@@ -1493,6 +1534,11 @@ void GLESRenderEngine::FlushTracer::loop() {
         }
     }
 }
+#ifdef MTK_DISP_COLOR_TRANSFORM_IS_NON_LINEAR
+void GLESRenderEngine::setDispColorTransform(const mat4& colorTransform) {
+    mState.dispColorMatrix = colorTransform;
+}
+#endif
 
 } // namespace gl
 } // namespace renderengine

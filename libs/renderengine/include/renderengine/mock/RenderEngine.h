@@ -82,6 +82,10 @@ public:
     MOCK_METHOD6(drawLayers,
                  status_t(const DisplaySettings&, const std::vector<LayerSettings>&,
                           ANativeWindowBuffer*, const bool, base::unique_fd&&, base::unique_fd*));
+#ifdef MTK_SF_DEBUG_SUPPORT
+    MOCK_METHOD1(enableDebugLine, void(bool));
+    MOCK_METHOD5(setDebugLineConfig, void(int32_t, int32_t, std::uint32_t, uint32_t, uint32_t));
+#endif
 };
 
 } // namespace mock

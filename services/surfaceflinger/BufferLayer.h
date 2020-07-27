@@ -191,6 +191,14 @@ private:
     std::shared_ptr<compositionengine::Layer> mCompositionLayer;
 
     FloatRect computeSourceBounds(const FloatRect& parentBounds) const override;
+
+#ifdef MTK_HDR_DISPLAY_SUPPORT
+    bool isHdrHwSource() const;
+#endif
+#ifdef MTK_IN_DISPLAY_FINGERPRINT
+private:
+    bool mDither;
+#endif
 };
 
 } // namespace android

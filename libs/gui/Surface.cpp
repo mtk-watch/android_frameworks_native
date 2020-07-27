@@ -44,10 +44,25 @@
 #include <gui/ISurfaceComposer.h>
 #include <private/gui/ComposerService.h>
 
+#ifdef MTK_AFPSGO_FBT_GAME
+#include "gui/mediatek/MTKFrameBudgetIndicator.h"
+#endif
+
+#ifdef MTK_GEDKPI_PRODUCER
+#include <gui/mediatek/GedKpiDebug.h>
+#endif
+#ifdef MSSI_MTK_GRAPHIC_LOW_LATENCY
+#include <gui/mediatek/GraphicHelper.h>
+#endif
+
 namespace android {
 
 using ui::ColorMode;
 using ui::Dataspace;
+
+#ifdef MTK_GEDKPI_PRODUCER
+GedKpiDebug mGedkpiDebugger;
+#endif
 
 Surface::Surface(const sp<IGraphicBufferProducer>& bufferProducer, bool controlledByApp)
       : mGraphicBufferProducer(bufferProducer),
@@ -96,12 +111,47 @@ Surface::Surface(const sp<IGraphicBufferProducer>& bufferProducer, bool controll
     mConnectedToCpu = false;
     mProducerControlledByApp = controlledByApp;
     mSwapIntervalZero = false;
+
+#ifdef MTK_GEDKPI_PRODUCER
+    if (mGraphicBufferProducer != NULL) {
+        uint64_t uniqueId;
+        mGraphicBufferProducer->getUniqueId(&uniqueId);
+        mGedkpiDebugger.onConstructor(static_cast<uint64_t>(reinterpret_cast<intptr_t>(this)), uniqueId);
+    }
+#endif
+
+#ifdef MTK_AFPSGO_FBT_GAME
+    uint64_t consumUsage = 0;
+    if (getConsumerUsage(&consumUsage) != NO_ERROR) {
+        ALOGE("Failed to getConsumerUsage()");
+    }
+
+    uint64_t bqId = 0;
+    if (getUniqueId(&bqId) != NO_ERROR) {
+        ALOGE("Failed to getUniqueId()");
+    }
+
+    notifyFbc(FBC_BQID, bqId, bool(consumUsage & GraphicBuffer::USAGE_HW_COMPOSER), static_cast<uint64_t>(reinterpret_cast<intptr_t>(this)));
+#endif
+
+#ifdef MSSI_MTK_GRAPHIC_LOW_LATENCY
+    GraphicExtModuleLoader::getInstance().CreateGraphicExtInstance();
+#endif
 }
 
 Surface::~Surface() {
     if (mConnectedToCpu) {
         Surface::disconnect(NATIVE_WINDOW_API_CPU);
     }
+
+#ifdef MTK_GEDKPI_PRODUCER
+    mGedkpiDebugger.onDestructor(static_cast<uint64_t>(reinterpret_cast<intptr_t>(this)));
+#endif
+
+#ifdef MTK_AFPSGO_FBT_GAME
+    notifyFbc(FBC_BQID_DES, 0, 0, static_cast<uint64_t>(reinterpret_cast<intptr_t>(this)));
+#endif
+
 }
 
 sp<ISurfaceComposer> Surface::composerService() const {
@@ -121,6 +171,9 @@ void Surface::setSidebandStream(const sp<NativeHandle>& stream) {
 }
 
 void Surface::allocateBuffers() {
+#ifdef MTK_LIBGUI_DEBUG_SUPPORT
+    ALOGD("Surface::allocateBuffers(this=%p)", this);
+#endif
     uint32_t reqWidth = mReqWidth ? mReqWidth : mUserWidth;
     uint32_t reqHeight = mReqHeight ? mReqHeight : mUserHeight;
     mGraphicBufferProducer->allocateBuffers(reqWidth, reqHeight,
@@ -535,6 +588,10 @@ int Surface::dequeueBuffer(android_native_buffer_t** buffer, int* fenceFd) {
     ATRACE_CALL();
     ALOGV("Surface::dequeueBuffer");
 
+#ifdef MTK_AFPSGO_FBT_GAME
+    notifyFbc(FBC_DEQUEUE_BEG, 0, 0, static_cast<uint64_t>(reinterpret_cast<intptr_t>(this)));
+#endif
+
     uint32_t reqWidth;
     uint32_t reqHeight;
     PixelFormat reqFormat;
@@ -561,6 +618,9 @@ int Surface::dequeueBuffer(android_native_buffer_t** buffer, int* fenceFd) {
             if (gbuf != nullptr) {
                 *buffer = gbuf.get();
                 *fenceFd = -1;
+#ifdef MTK_AFPSGO_FBT_GAME
+                notifyFbc(FBC_DEQUEUE_END, 0, 0, static_cast<uint64_t>(reinterpret_cast<intptr_t>(this)));
+#endif
                 return OK;
             }
         }
@@ -576,6 +636,10 @@ int Surface::dequeueBuffer(android_native_buffer_t** buffer, int* fenceFd) {
                                                             enableFrameTimestamps ? &frameTimestamps
                                                                                   : nullptr);
     mLastDequeueDuration = systemTime() - startTime;
+
+#ifdef MTK_AFPSGO_FBT_GAME
+    notifyFbc(FBC_DEQUEUE_END, 0, 0, static_cast<uint64_t>(reinterpret_cast<intptr_t>(this)));
+#endif
 
     if (result < 0) {
         ALOGV("dequeueBuffer: IGraphicBufferProducer::dequeueBuffer"
@@ -625,7 +689,16 @@ int Surface::dequeueBuffer(android_native_buffer_t** buffer, int* fenceFd) {
         }
     }
 
+#ifdef MTK_GEDKPI_PRODUCER
+    mGedkpiDebugger.onDequeue(static_cast<uint64_t>(reinterpret_cast<intptr_t>(this)), gbuf, fence);
+#endif
+
+#ifdef MTK_AOSP_DISPLAY_BUGFIX
+    // Google issue: binder transaction might be failed and get null fence
+    if (fence != NULL && fence->isValid()) {
+#else
     if (fence->isValid()) {
+#endif
         *fenceFd = fence->dup();
         if (*fenceFd == -1) {
             ALOGE("dequeueBuffer: error duping fence: %d", errno);
@@ -698,6 +771,9 @@ int Surface::lockBuffer_DEPRECATED(android_native_buffer_t* buffer __attribute__
 
 int Surface::queueBuffer(android_native_buffer_t* buffer, int fenceFd) {
     ATRACE_CALL();
+#ifdef MTK_AFPSGO_FBT_GAME
+    notifyFbc(FBC_QUEUE_BEG, 0, 0, static_cast<uint64_t>(reinterpret_cast<intptr_t>(this)));
+#endif
     ALOGV("Surface::queueBuffer");
     Mutex::Autolock lock(mMutex);
     int64_t timestamp;
@@ -803,6 +879,13 @@ int Surface::queueBuffer(android_native_buffer_t* buffer, int fenceFd) {
         input.setSurfaceDamage(flippedRegion);
     }
 
+#ifdef MSSI_MTK_GRAPHIC_LOW_LATENCY
+    status_t errEnv = NO_ERROR;
+    errEnv = GraphicExtModuleLoader::getInstance().setBQEnv(this, mConsumerRunningBehind);
+    if (errEnv != NO_ERROR) {
+        ALOGE("GraphicBoostUtil: set bufferqueue env error(%d)", errEnv);
+    }
+#endif
     nsecs_t now = systemTime();
     status_t err = mGraphicBufferProducer->queueBuffer(i, input, &output);
     mLastQueueDuration = systemTime() - now;
@@ -847,6 +930,18 @@ int Surface::queueBuffer(android_native_buffer_t* buffer, int fenceFd) {
     }
 
     mQueueBufferCondition.broadcast();
+
+#ifdef MTK_GEDKPI_PRODUCER
+    sp<GraphicBuffer>& gbuf(mSlots[i].buffer);
+    mGedkpiDebugger.onQueue(static_cast<uint64_t>(reinterpret_cast<intptr_t>(this)), gbuf, fence, output.numPendingBuffers);
+
+    //TODO: gpu dvfs need this tag. maybe can move to other place
+    mGedkpiDebugger.onAcquire(static_cast<uint64_t>(reinterpret_cast<intptr_t>(this)), gbuf);
+#endif
+
+#ifdef MTK_AFPSGO_FBT_GAME
+    notifyFbc(FBC_QUEUE_END, 0, 0, static_cast<uint64_t>(reinterpret_cast<intptr_t>(this)));
+#endif
 
     if (CC_UNLIKELY(atrace_is_tag_enabled(ATRACE_TAG_GRAPHICS))) {
         static FenceMonitor gpuCompletionThread("GPU completion");
@@ -1289,7 +1384,11 @@ int Surface::connect(int api, const sp<IProducerListener>& listener) {
 int Surface::connect(
         int api, const sp<IProducerListener>& listener, bool reportBufferRemoval) {
     ATRACE_CALL();
+#ifdef MTK_LIBGUI_DEBUG_SUPPORT
+    ALOGD("Surface::connect(this=%p,api=%d)", this, api);
+#else
     ALOGV("Surface::connect");
+#endif
     Mutex::Autolock lock(mMutex);
     IGraphicBufferProducer::QueueBufferOutput output;
     mReportRemovedBuffers = reportBufferRemoval;
@@ -1317,13 +1416,25 @@ int Surface::connect(
         mDirtyRegion = Region::INVALID_REGION;
     }
 
+#ifdef MTK_GEDKPI_PRODUCER
+    mGedkpiDebugger.onProducerConnect(static_cast<uint64_t>(reinterpret_cast<intptr_t>(this)), listener->asBinder(listener), api);
+#endif
+
+#ifdef MTK_AFPSGO_FBT_GAME
+    notifyFbc(FBC_CNT, 0, api, static_cast<uint64_t>(reinterpret_cast<intptr_t>(this)));
+#endif
+
     return err;
 }
 
 
 int Surface::disconnect(int api, IGraphicBufferProducer::DisconnectMode mode) {
     ATRACE_CALL();
+#ifdef MTK_LIBGUI_DEBUG_SUPPORT
+    ALOGD("Surface::disconnect(this=%p,api=%d)", this, api);
+#else
     ALOGV("Surface::disconnect");
+#endif
     Mutex::Autolock lock(mMutex);
     mRemovedBuffers.clear();
     mSharedBufferSlot = BufferItem::INVALID_BUFFER_SLOT;
@@ -1344,6 +1455,15 @@ int Surface::disconnect(int api, IGraphicBufferProducer::DisconnectMode mode) {
             mConnectedToCpu = false;
         }
     }
+
+#ifdef MTK_GEDKPI_PRODUCER
+    mGedkpiDebugger.onProducerDisconnect(static_cast<uint64_t>(reinterpret_cast<intptr_t>(this)));
+#endif
+
+#ifdef MTK_AFPSGO_FBT_GAME
+    notifyFbc(FBC_DISCNT, 0, api, static_cast<uint64_t>(reinterpret_cast<intptr_t>(this)));
+#endif
+
     return err;
 }
 
@@ -1450,7 +1570,11 @@ int Surface::setCrop(Rect const* rect)
 int Surface::setBufferCount(int bufferCount)
 {
     ATRACE_CALL();
+#ifdef MTK_LIBGUI_DEBUG_SUPPORT
+    ALOGD("Surface::setBufferCount(this=%p,bufferCount=%d)", this, bufferCount);
+#else
     ALOGV("Surface::setBufferCount");
+#endif
     Mutex::Autolock lock(mMutex);
 
     status_t err = NO_ERROR;
@@ -1530,7 +1654,11 @@ int Surface::setAutoRefresh(bool autoRefresh) {
 int Surface::setBuffersDimensions(uint32_t width, uint32_t height)
 {
     ATRACE_CALL();
+#ifdef MTK_LIBGUI_DEBUG_SUPPORT
+    ALOGV("Surface::setBuffersDimensions(this=%p,w=%d,h=%d)", this, width, height);
+#else
     ALOGV("Surface::setBuffersDimensions");
+#endif
 
     if ((width && !height) || (!width && height))
         return BAD_VALUE;
@@ -1547,7 +1675,11 @@ int Surface::setBuffersDimensions(uint32_t width, uint32_t height)
 int Surface::setBuffersUserDimensions(uint32_t width, uint32_t height)
 {
     ATRACE_CALL();
+#ifdef MTK_LIBGUI_DEBUG_SUPPORT
+    ALOGD("Surface::setBuffersUserDimensions(this=%p,w=%d,h=%d)", this, width, height);
+#else
     ALOGV("Surface::setBuffersUserDimensions");
+#endif
 
     if ((width && !height) || (!width && height))
         return BAD_VALUE;

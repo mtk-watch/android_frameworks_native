@@ -947,6 +947,11 @@ private:
     bool mGetHandleCalled = false;
 
     void removeRemoteSyncPoints();
+
+#ifdef MTK_SF_DEBUG_SUPPORT
+public:
+    virtual void dumpBufferQueueCoreState(String8&) const {};
+#endif
 };
 
 } // namespace android

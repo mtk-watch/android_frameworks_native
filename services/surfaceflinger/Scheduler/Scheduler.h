@@ -293,6 +293,10 @@ private:
 
     // Global config to force HDR content to work on DEFAULT refreshRate
     static constexpr bool mForceHDRContentToDefaultRefreshRate = true;
+#ifdef MTK_VSYNC_ENHANCEMENT_SUPPORT
+public:
+    status_t setVSyncMode(int32_t mode, int32_t fps) { return mPrimaryDispSync->setVSyncMode(mode, fps); }
+#endif
 };
 
 } // namespace android
